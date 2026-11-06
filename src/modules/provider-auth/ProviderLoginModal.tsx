@@ -1,6 +1,7 @@
 import { useTranslation } from 'react-i18next';
 import { X } from 'lucide-react';
 
+import KimiDeviceLogin from '@/modules/provider-auth/KimiDeviceLogin';
 import { StandaloneShell } from '@/modules/standalone-shell';
 import { IS_PLATFORM } from '@/shared/utils';
 import type { LLMProvider } from '@/shared/types';
@@ -59,6 +60,10 @@ const getProviderCommand = ({
     return 'opencode auth login';
   }
 
+  if (provider === 'kimi') {
+    return 'kimi login';
+  }
+
   return 'claude --dangerously-skip-permissions /login';
 };
 
@@ -67,6 +72,7 @@ const getProviderTitle = (provider: LLMProvider) => {
   if (provider === 'cursor') return 'Cursor CLI Login';
   if (provider === 'codex') return 'Codex CLI Login';
   if (provider === 'opencode') return 'OpenCode CLI Login';
+  if (provider === 'kimi') return 'Kimi Code CLI Login';
   return 'Claude CLI Login';
 };
 
@@ -110,7 +116,17 @@ export default function ProviderLoginModal({
         </div>
 
         <div className="flex-1 overflow-hidden">
-          <StandaloneShell project={DEFAULT_PROJECT_FOR_EMPTY_SHELL} command={command} onComplete={handleComplete} minimal={true} />
+          {provider === 'kimi' ? (
+            <div className="h-full overflow-y-auto">
+              <KimiDeviceLogin
+                onComplete={(exitCode) => {
+                  onComplete?.(exitCode);
+                }}
+              />
+            </div>
+          ) : (
+            <StandaloneShell project={DEFAULT_PROJECT_FOR_EMPTY_SHELL} command={command} onComplete={handleComplete} minimal={true} />
+          )}
         </div>
       </div>
     </div>

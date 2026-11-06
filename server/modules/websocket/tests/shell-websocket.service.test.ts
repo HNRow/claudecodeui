@@ -270,6 +270,43 @@ function launch(
   return socket;
 }
 
+test('agent shells add user CLI bin directories missing from the server PATH', () => {
+  withClaudeConfig(({ home, projectPath }) => {
+    const pathKey = Object.keys(process.env).find((key) => key.toLowerCase() === 'path') || 'PATH';
+    const savedPath = process.env[pathKey];
+    process.env[pathKey] = os.platform() === 'win32' ? 'C:\\Windows\\System32' : '/usr/bin:/bin';
+
+    try {
+      const { calls, dependencies } = spawnRecorder();
+      launch(dependencies, { provider: 'claude' }, projectPath);
+
+      const pathEntries = calls[0].env[pathKey]?.split(path.delimiter) ?? [];
+      assert.ok(pathEntries.includes(path.join(home, '.local', 'bin')));
+      assert.ok(pathEntries.includes(path.join(home, '.kimi-code', 'bin')));
+      assert.ok(pathEntries.includes(process.env[pathKey]?.split(path.delimiter)[0] as string));
+    } finally {
+      if (savedPath === undefined) {
+        delete process.env[pathKey];
+      } else {
+        process.env[pathKey] = savedPath;
+      }
+    }
+  });
+});
+
+test('kimi shells launch and resume kimi instead of falling back to claude', () => {
+  withClaudeConfig(({ projectPath }) => {
+    const { calls, dependencies } = spawnRecorder('resumed-session-id');
+
+    launch(dependencies, { provider: 'kimi' }, projectPath);
+    launch(dependencies, { provider: 'kimi', hasSession: true }, projectPath);
+
+    assert.deepEqual(calls.map((call) => call.command), os.platform() === 'win32'
+      ? ['kimi', 'kimi --session "resumed-session-id"; if ($LASTEXITCODE -ne 0) { kimi }']
+      : ['kimi', 'kimi --session "resumed-session-id" || kimi']);
+  });
+});
+
 type ClaudeConfigFixture = {
   configHome: string;
   home: string;

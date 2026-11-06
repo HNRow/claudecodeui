@@ -100,6 +100,7 @@ export abstract class SkillsProvider implements IProviderSkills {
     for (const source of sources) {
       const skillFiles = await findProviderSkillMarkdownFiles(source.rootDir, {
         recursive: source.recursive,
+        includeFlatMarkdown: source.includeFlatMarkdown,
       });
       for (const skillPath of skillFiles) {
         try {

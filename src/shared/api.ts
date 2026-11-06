@@ -423,6 +423,13 @@ export const api = {
       get(`/api/providers/${encodeURIComponent(provider)}/cli`),
     updateCli: (provider: string) =>
       post(`/api/providers/${encodeURIComponent(provider)}/cli/update`),
+    /** Managed device-code login (Kimi). Status is polled while the CLI runs. */
+    loginStatus: (provider: string) =>
+      get(`/api/providers/${encodeURIComponent(provider)}/auth/login`),
+    startLogin: (provider: string, region?: string) =>
+      post(`/api/providers/${encodeURIComponent(provider)}/auth/login`, region ? { region } : {}),
+    cancelLogin: (provider: string) =>
+      del(`/api/providers/${encodeURIComponent(provider)}/auth/login`),
     claudeSettingsPermissions: () => get('/api/providers/claude/settings-permissions'),
 
     models: (provider: string) => get(`/api/providers/${provider}/models`),

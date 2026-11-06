@@ -11,6 +11,7 @@ import cors from 'cors';
 
 import { AppError, findApplicationRoot, getModuleDirectory, IS_PLATFORM, terminalTextStyles } from '@/shared/utils.js';
 import {
+    closeKimiRuntime,
     closeSessionsWatcher,
     initializeSessionsWatcher,
     providerRuntimeService,
@@ -88,6 +89,7 @@ const queryClaude = providerRuntimeService.getRunner('claude');
 const queryCursor = providerRuntimeService.getRunner('cursor');
 const queryCodex = providerRuntimeService.getRunner('codex');
 const queryOpenCode = providerRuntimeService.getRunner('opencode');
+const queryKimi = providerRuntimeService.getRunner('kimi');
 const gitRoutes = createGitModule({
     queryClaude,
     queryCursor,
@@ -97,6 +99,7 @@ const agentRoutes = createAgentModule({
     queryCursor,
     queryCodex,
     queryOpenCode,
+    queryKimi,
 });
 
 // Single WebSocket server that handles chat, shell, and plugin proxy paths.
@@ -400,6 +403,12 @@ async function startServer() {
                 await browserUseService.stopAllSessions();
             } catch (err) {
                 console.error('[Browser] Error stopping sessions during shutdown:', getErrorMessage(err));
+            }
+            try {
+                // Every live `kimi acp` turn process is cancelled and killed.
+                await closeKimiRuntime();
+            } catch (err) {
+                console.error('[Kimi] Error stopping ACP processes during shutdown:', getErrorMessage(err));
             }
             try {
                 await stopAllPlugins();

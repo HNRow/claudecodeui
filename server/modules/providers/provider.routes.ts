@@ -8,6 +8,7 @@ import { providerMcpService } from '@/modules/providers/services/mcp.service.js'
 import { providerModelsService } from '@/modules/providers/services/provider-models.service.js';
 import { providerTokenUsageService } from '@/modules/providers/services/provider-token-usage.service.js';
 import { providerSkillsService } from '@/modules/providers/services/skills.service.js';
+import { kimiLoginService } from '@/modules/providers/list/kimi/kimi-login.service.js';
 import { sessionConversationsSearchService } from '@/modules/providers/services/session-conversations-search.service.js';
 import { sessionsService } from '@/modules/providers/services/sessions.service.js';
 import type {
@@ -319,6 +320,7 @@ const parseProvider = (value: unknown): LLMProvider => {
     || normalized === 'codex'
     || normalized === 'cursor'
     || normalized === 'opencode'
+    || normalized === 'kimi'
   ) {
     return normalized;
   }
@@ -630,6 +632,49 @@ router.get(
     const provider = parseProvider(req.params.provider);
     const status = await providerAuthService.getProviderAuthStatus(provider);
     res.json(createApiSuccessResponse(status));
+  }),
+);
+
+/** Kimi is the only provider with a managed device-code login flow. */
+const assertManagedLoginProvider = (provider: LLMProvider): void => {
+  if (provider !== 'kimi') {
+    throw new AppError(`Provider "${provider}" has no managed login flow.`, {
+      code: 'PROVIDER_LOGIN_UNSUPPORTED',
+      statusCode: 400,
+    });
+  }
+};
+
+/** Starts the Kimi device-code login; returns the current state plus URL/code once captured. */
+router.post(
+  '/:provider/auth/login',
+  asyncHandler(async (req: Request, res: Response) => {
+    const provider = parseProvider(req.params.provider);
+    assertManagedLoginProvider(provider);
+
+    const region = typeof req.body?.region === 'string' ? req.body.region.trim() : undefined;
+    const status = kimiLoginService.start({ region: region || undefined });
+    res.status(202).json(createApiSuccessResponse(status));
+  }),
+);
+
+/** Polls the in-flight (or last) Kimi login state. */
+router.get(
+  '/:provider/auth/login',
+  asyncHandler(async (req: Request, res: Response) => {
+    const provider = parseProvider(req.params.provider);
+    assertManagedLoginProvider(provider);
+    res.json(createApiSuccessResponse(kimiLoginService.getStatus()));
+  }),
+);
+
+/** Cancels the in-flight Kimi login, if any. */
+router.delete(
+  '/:provider/auth/login',
+  asyncHandler(async (req: Request, res: Response) => {
+    const provider = parseProvider(req.params.provider);
+    assertManagedLoginProvider(provider);
+    res.json(createApiSuccessResponse(kimiLoginService.cancel()));
   }),
 );
 

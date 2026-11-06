@@ -66,7 +66,7 @@ export type AuthenticatedWebSocketRequest = IncomingMessage & {
  * Use this as the source of truth whenever a function or payload needs to identify
  * a specific LLM integration.
  */
-export type LLMProvider = 'claude' | 'codex' | 'cursor' | 'opencode';
+export type LLMProvider = 'claude' | 'codex' | 'cursor' | 'opencode' | 'kimi';
 
 /**
  * One selectable model row in a provider model catalog.
@@ -798,6 +798,12 @@ export type ProviderSkillSource = {
   scope: ProviderSkillScope;
   rootDir: string;
   recursive?: boolean;
+  /**
+   * Also accept top-level `<skill-name>.md` files beside skill directories.
+   * Kimi Code loads both forms; the shared scanner only enables this for
+   * sources that declare it, so directory-only providers keep their behavior.
+   */
+  includeFlatMarkdown?: boolean;
   commandPrefix?: '/' | '$';
   commandForSkill?: (skillName: string) => string;
   pluginName?: string;

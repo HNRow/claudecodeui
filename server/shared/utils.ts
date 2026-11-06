@@ -862,17 +862,19 @@ export function addUniqueProviderSkillSource(
 // ---------------------------
 //----------------- PROVIDER SKILL MARKDOWN UTILITIES ------------
 /**
- * Finds direct child skill markdown files under a provider skill root.
+ * Finds skill markdown files under a provider skill root.
  *
  * Skill systems usually store one skill per child directory, so direct mode
- * scans only `<root>/<skill-name>/SKILL.md`. Recursive mode is reserved for
- * provider sources that can nest skills arbitrarily, and it returns every
- * descendant `SKILL.md`. Missing or unreadable roots return an empty list
- * because users may not have every provider installed or configured.
+ * scans only `<root>/<skill-name>/SKILL.md`. With `includeFlatMarkdown`, direct
+ * mode also accepts `<root>/<skill-name>.md` (Kimi Code's flat form); when both
+ * forms declare the same skill name the directory form wins. Recursive mode is
+ * reserved for provider sources that can nest skills arbitrarily, and it
+ * returns every descendant `SKILL.md`. Missing or unreadable roots return an
+ * empty list because users may not have every provider installed or configured.
  */
 export async function findProviderSkillMarkdownFiles(
   rootDir: string,
-  options: { recursive?: boolean } = {},
+  options: { recursive?: boolean; includeFlatMarkdown?: boolean } = {},
 ): Promise<string[]> {
   const skillFiles: string[] = [];
 
@@ -908,23 +910,46 @@ export async function findProviderSkillMarkdownFiles(
 
   try {
     const entries = await readdir(rootDir, { withFileTypes: true });
+    const directorySkills: string[] = [];
+    const flatSkills: string[] = [];
 
     for (const entry of entries) {
-      if (!entry.isDirectory() && !entry.isSymbolicLink()) {
+      if (entry.isDirectory() || entry.isSymbolicLink()) {
+        const skillPath = path.join(rootDir, entry.name, 'SKILL.md');
+        try {
+          const skillStats = await stat(skillPath);
+          if (skillStats.isFile()) {
+            directorySkills.push(skillPath);
+          }
+        } catch {
+          // A partial skill directory should not block discovery of sibling skills.
+        }
         continue;
       }
 
-      const skillPath = path.join(rootDir, entry.name, 'SKILL.md');
-      try {
-        const skillStats = await stat(skillPath);
-        if (skillStats.isFile()) {
-          skillFiles.push(skillPath);
-        }
-      } catch {
-        // A partial skill directory should not block discovery of sibling skills.
+      if (
+        options.includeFlatMarkdown
+        && entry.isFile()
+        && entry.name.toLowerCase().endsWith('.md')
+        && entry.name.toLowerCase() !== 'skill.md'
+      ) {
+        flatSkills.push(path.join(rootDir, entry.name));
       }
     }
 
+    // `<root>/<name>/SKILL.md` wins over `<root>/<name>.md`; the flat list is
+    // only consulted for names the directory form did not claim.
+    const claimedNames = new Set(
+      directorySkills.map((skillPath) => path.basename(path.dirname(skillPath)).toLowerCase()),
+    );
+    for (const flatSkillPath of flatSkills) {
+      const flatName = path.basename(flatSkillPath, path.extname(flatSkillPath)).toLowerCase();
+      if (!claimedNames.has(flatName)) {
+        skillFiles.push(flatSkillPath);
+      }
+    }
+
+    skillFiles.push(...directorySkills);
     return skillFiles.sort((left, right) => left.localeCompare(right));
   } catch {
     return [];
@@ -944,8 +969,25 @@ export async function readProviderSkillMarkdownDefinition(
   const content = await readFile(skillPath, 'utf8');
   return readProviderSkillMarkdownDefinitionFromContent(
     content,
-    path.basename(path.dirname(skillPath)),
+    resolveProviderSkillFallbackName(skillPath),
   );
+}
+
+/**
+ * Derives the skill id a markdown file falls back to when its front matter
+ * omits `name`.
+ *
+ * Skill directories are named after the skill, while flat `<name>.md` files
+ * (Kimi Code's form) carry the name in the file name, so the fallback follows
+ * whichever shape the file actually has.
+ */
+function resolveProviderSkillFallbackName(skillPath: string): string {
+  const baseName = path.basename(skillPath);
+  if (baseName.toLowerCase() !== 'skill.md') {
+    return baseName.replace(/\.md$/i, '');
+  }
+
+  return path.basename(path.dirname(skillPath));
 }
 
 /**
@@ -1049,6 +1091,75 @@ export function readJsonRecord(value: unknown): AnyRecord | null {
  */
 export function getOpenCodeDatabasePath(): string {
   return path.join(os.homedir(), '.local', 'share', 'opencode', 'opencode.db');
+}
+
+// ---------------------------
+//----------------- KIMI CODE PATHS ------------
+/**
+ * Resolves the Kimi Code home directory.
+ *
+ * Kimi CLI keeps `config.toml`, `sessions/`, `skills/`, and `mcp.json` under
+ * `~/.kimi-code` by default and relocates all of them when `KIMI_CODE_HOME` is
+ * set. The Kimi providers (models, MCP, skills, sessions, synchronizer) must
+ * read the same root the CLI uses, so they all resolve it here instead of
+ * repeating `os.homedir()`.
+ */
+export function getKimiCodeHome(): string {
+  const configuredHome = process.env.KIMI_CODE_HOME?.trim();
+  if (configuredHome) {
+    return path.resolve(expandHomeDirectory(configuredHome));
+  }
+
+  return path.join(os.homedir(), '.kimi-code');
+}
+
+/**
+ * Resolves the Kimi CLI executable the provider spawns.
+ *
+ * `KIMI_CLI_PATH` overrides the `kimi` looked up on PATH and may be an
+ * absolute path or a `~`-prefixed one. Authentication checks, ACP turns, and
+ * the login service all call this single resolver so an override reaches every
+ * code path instead of only some of them.
+ */
+export function resolveKimiCliPath(): string {
+  const configuredPath = process.env.KIMI_CLI_PATH?.trim();
+  if (!configuredPath) {
+    return 'kimi';
+  }
+
+  return expandHomeDirectory(configuredPath);
+}
+
+/** Path of the Kimi CLI user configuration file (`$KIMI_CODE_HOME/config.toml`). */
+export function getKimiConfigPath(): string {
+  return path.join(getKimiCodeHome(), 'config.toml');
+}
+
+/** Root directory holding Kimi session folders (`$KIMI_CODE_HOME/sessions`). */
+export function getKimiSessionsRoot(): string {
+  return path.join(getKimiCodeHome(), 'sessions');
+}
+
+/**
+ * Kimi session identifiers are folder names (`session_<uuid>`).
+ *
+ * Anything used to build a filesystem path from a provider-native id is checked
+ * with this first, so a crafted id cannot escape the sessions root.
+ */
+export function isKimiSessionId(value: string): boolean {
+  return /^session_[A-Za-z0-9-]{8,128}$/.test(value);
+}
+
+/** Expands a leading `~` in a configured path without touching the rest of it. */
+function expandHomeDirectory(value: string): string {
+  if (value === '~') {
+    return os.homedir();
+  }
+  if (value.startsWith('~/') || value.startsWith(`~${path.sep}`)) {
+    return path.join(os.homedir(), value.slice(2));
+  }
+
+  return value;
 }
 
 /**

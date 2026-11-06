@@ -121,6 +121,27 @@ const PROVIDER_CAPABILITIES: Record<LLMProvider, ProviderCapabilities> = {
     supportsMessageEditing: false,
     supportsSessionForking: false,
   },
+  kimi: {
+    provider: 'kimi',
+    // Mapped onto the ACP session modes Kimi CLI advertises (`default` = manual
+    // approvals, `yolo` = accept edits, `auto` = bypass, `plan` = read-only).
+    // The runtime resolves ids from the advertised mode list, never by
+    // assuming these literals exist.
+    permissionModes: ['default', 'acceptEdits', 'bypassPermissions', 'plan'],
+    defaultPermissionMode: 'default',
+    // ACP advertises `promptCapabilities.image`; general file attachments are
+    // not part of the first version.
+    supportsImages: true,
+    supportsFiles: false,
+    supportsAbort: true,
+    supportsPermissionRequests: true,
+    supportsTokenUsage: false,
+    supportsEffort: true,
+    // `support_efforts` in the user's config.toml; Kimi CLI ships these three.
+    effortLevels: ['low', 'high', 'max'],
+    supportsMessageEditing: false,
+    supportsSessionForking: false,
+  },
 };
 
 /**

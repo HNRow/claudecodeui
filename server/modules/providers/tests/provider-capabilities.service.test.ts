@@ -17,6 +17,9 @@ const CURATED_CATALOGS: Record<LLMProvider, ProviderModelsDefinition> = {
   codex: CODEX_PREDEFINED_MODELS,
   cursor: CURSOR_PREDEFINED_MODELS,
   opencode: OPENCODE_PREDEFINED_MODELS,
+  // Kimi has no curated catalog: its models and their effort levels come from
+  // the user's own config.toml, so there is nothing source-controlled to cover.
+  kimi: { OPTIONS: [], DEFAULT: '' },
 };
 
 test('capability effort levels cover every level a curated model declares', () => {

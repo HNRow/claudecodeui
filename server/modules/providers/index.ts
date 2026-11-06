@@ -14,5 +14,9 @@ export { sessionsService } from './services/sessions.service.js';
 // OpenCode turn servers a killed CloudCLI process left running.
 export { reapOrphanedOpenCodeServers } from './list/opencode/opencode-runtime.provider.js';
 
+// closeKimiRuntime: used by the server entrypoint at shutdown to stop every
+// live `kimi acp` turn process.
+export { closeKimiRuntime } from './list/kimi/kimi-runtime.provider.js';
+
 export { initializeSessionsWatcher } from './services/sessions-watcher.service.js';
 export { closeSessionsWatcher } from './services/sessions-watcher.service.js';

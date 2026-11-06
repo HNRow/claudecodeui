@@ -250,6 +250,16 @@ function buildShellCommand(
     return otherProgram(initialCommand || 'opencode');
   }
 
+  if (provider === 'kimi') {
+    if (resumeSessionId) {
+      if (os.platform() === 'win32') {
+        return otherProgram(`kimi --session "${resumeSessionId}"; if ($LASTEXITCODE -ne 0) { kimi }`);
+      }
+      return otherProgram(`kimi --session "${resumeSessionId}" || kimi`);
+    }
+    return otherProgram(initialCommand || 'kimi');
+  }
+
   // Launching with the flag is what unlocks "bypass permissions" in the CLI's
   // shift+tab permission-mode cycle; it cannot be enabled from inside a
   // session started without it.
@@ -476,7 +486,7 @@ function getPathEnvKey(env: NodeJS.ProcessEnv): string {
   return Object.keys(env).find((key) => key.toLowerCase() === 'path') || 'PATH';
 }
 
-function prioritizeUserNpmGlobalBin(env: NodeJS.ProcessEnv): { key: string; value: string | undefined } {
+function prioritizeUserCliBinDirectories(env: NodeJS.ProcessEnv): { key: string; value: string | undefined } {
   const pathKey = getPathEnvKey(env);
   const currentPath = env[pathKey];
   if (!currentPath) {
@@ -487,7 +497,12 @@ function prioritizeUserNpmGlobalBin(env: NodeJS.ProcessEnv): { key: string; valu
   const pathEntries = currentPath.split(delimiter).filter(Boolean);
   const npmPrefix = readEnvValue(env, 'npm_config_prefix');
   const appData = readEnvValue(env, 'APPDATA');
+  const userCliBinDirectories = [
+    path.join(os.homedir(), '.local', 'bin'),
+    path.join(os.homedir(), '.kimi-code', 'bin'),
+  ];
   const candidates = [
+    ...userCliBinDirectories,
     npmPrefix || '',
     npmPrefix ? path.join(npmPrefix, 'bin') : '',
     appData ? path.join(appData, 'npm') : '',
@@ -500,7 +515,7 @@ function prioritizeUserNpmGlobalBin(env: NodeJS.ProcessEnv): { key: string; valu
     const normalizedCandidate = os.platform() === 'win32' ? candidate.toLowerCase() : candidate;
     return (
       candidates.indexOf(candidate) === index &&
-      normalizedPathEntries.includes(normalizedCandidate)
+      (userCliBinDirectories.includes(candidate) || normalizedPathEntries.includes(normalizedCandidate))
     );
   });
 
@@ -645,7 +660,7 @@ export function handleShellConnection(
           os.platform() === 'win32' ? ['-Command', shellCommand] : ['-c', shellCommand];
         const termCols = readNumber(data.cols, 80);
         const termRows = readNumber(data.rows, 24);
-        const prioritizedPath = prioritizeUserNpmGlobalBin(process.env);
+        const prioritizedPath = prioritizeUserCliBinDirectories(process.env);
 
         shellProcess = (dependencies.spawnPty ?? pty.spawn)(shell, shellArgs, {
           name: 'xterm-256color',

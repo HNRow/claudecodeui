@@ -45,6 +45,7 @@ Current provider ids in this repo are:
 - `codex`
 - `cursor`
 - `opencode`
+- `kimi`
 
 Those ids are mirrored in backend unions and frontend provider constants. If
 adding a new provider, update every place that hardcodes this list.
@@ -65,7 +66,8 @@ server/modules/providers/list/<provider>/
   <provider>-session-synchronizer.provider.ts
 ```
 
-The existing provider folders are `claude`, `codex`, `cursor`, and `opencode`.
+The existing provider folders are `claude`, `codex`, `cursor`, `opencode`, and
+`kimi`.
 
 Each provider wrapper owns its SDK/CLI runtime alongside its auth, model, and
 session facets. Runtime adapters receive registry-backed model and session
@@ -90,6 +92,48 @@ import the service from `server/modules/providers/index.ts`.
 
 - `sessions` handles runtime event normalization and history fetches.
 - `sessionSynchronizer` handles file-backed session indexing into `sessionsDb`.
+
+## Kimi Provider Notes
+
+Kimi Code CLI is integrated through its official ACP (Agent Client Protocol)
+stdio server, `kimi acp`, using `@agentclientprotocol/sdk` 1.x.
+
+- **One process per turn.** Each chat turn spawns its own `kimi acp`, runs
+  `initialize` -> `session/new` or `session/resume` -> `session/prompt`, then
+  `session/close` and exits. This is deliberate: it isolates crashes and avoids
+  a long-lived shared agent. Do not replace it with a global ACP process.
+- **CLI path.** `KIMI_CLI_PATH` overrides `kimi`; the resolver lives in
+  `server/shared/utils.ts` and is shared by auth, runtime, and login. `ENOENT`
+  is reported as "not installed", never as "not logged in".
+- **Permissions.** `session/request_permission` becomes the standard
+  `permission_request`. Options are chosen by `kind`
+  (`allow_once`/`allow_always`/`reject_once`/`reject_always`), never by a
+  hard-coded option id. Session-scoped "always allow" entries live in memory
+  for the app session and are rebuilt on each turn; Kimi's own config is never
+  edited to simulate them.
+- **Modes.** `default`, `acceptEdits`, `bypassPermissions`, and `plan` map onto
+  the modes Kimi advertises (`default`, `yolo`, `auto`, `plan`). `plan` never
+  silently degrades.
+- **Login.** `kimi login` runs as a managed device-code process; the backend
+  captures the verification URL and user code and exposes them through
+  `POST/GET/DELETE /api/providers/kimi/auth/login`. Only one login process may
+  run at a time.
+- **Models.** The catalog is read from `$KIMI_CODE_HOME/config.toml`
+  (`default_model`, `models.*`, `support_efforts`, `display_name`), never from a
+  source-controlled list. Provider credentials are never returned.
+- **MCP.** Native `mcp.json` files: `$KIMI_CODE_HOME/mcp.json` (user) and
+  `<workspace>/.kimi-code/mcp.json` (project), root `{ "mcpServers": ... }`.
+  Unknown fields on a server survive updates. The MCP servers configured there
+  are used by Kimi directly; the runtime does not forward them again.
+- **Skills.** `$KIMI_CODE_HOME/skills`, `~/.agents/skills`, the nearest git
+  root's `.kimi-code/skills` and `.agents/skills`, plus `extra_skill_dirs` from
+  `config.toml`. Both `<name>/SKILL.md` and flat `<name>.md` are indexed and
+  invoked as `/skill:<name>`.
+- **History.** `session/load` replay is normalized by the same
+  `normalizeMessage` used for live events. `fetchHistory` never calls a model.
+- **Not implemented (first version):** session forking, editing earlier
+  messages, and background task management. The provider leaves those
+  interfaces absent on purpose.
 
 ## How To Add A Provider
 
@@ -212,6 +256,7 @@ Current session sync roots are:
 | Codex | `~/.codex/sessions/**/*.jsonl` | Uses `~/.codex/session_index.jsonl` for title lookup and the last `task_complete` message for a fallback title. |
 | Cursor | `~/.cursor/projects/**/*.jsonl` | Uses sibling `worker.log` to recover `workspacePath`, then derives the session title from the first user prompt. |
 | OpenCode | `~/.local/share/opencode/opencode.db` | Reads active sessions/messages/parts from OpenCode's shared SQLite database and stores `jsonl_path` as `null` so deleting one app session cannot remove the shared DB. |
+| Kimi | `$KIMI_CODE_HOME/sessions/*/*/state.json` (default `~/.kimi-code`) | Indexes `state.json` metadata (`title`, `cwd`, timestamps) and stores the main agent's `agents/main/wire.jsonl` as the transcript path. History itself is replayed through ACP `session/load`, never by parsing that file. |
 
 8. Register the provider.
 

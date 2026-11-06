@@ -36,11 +36,15 @@ export default function AgentsSettingsTab({
   const visibleCategories = useMemo<AgentCategory[]>(() => (
     selectedAgent === 'opencode'
       ? ['account', 'permissions', 'mcp']
-      : ['account', 'permissions', 'mcp', 'skills']
+      : selectedAgent === 'kimi'
+        // Kimi's tool-rule editor is not part of the first version; its
+        // permission mode lives in the composer.
+        ? ['account', 'mcp', 'skills']
+        : ['account', 'permissions', 'mcp', 'skills']
   ), [selectedAgent]);
 
   const visibleAgents = useMemo<AgentProvider[]>(() => {
-    return ['claude', 'cursor', 'codex', 'opencode'];
+    return ['claude', 'cursor', 'codex', 'opencode', 'kimi'];
   }, []);
 
   const agentContextById = useMemo<AgentContextByProvider>(() => ({
@@ -60,12 +64,17 @@ export default function AgentsSettingsTab({
       authStatus: providerAuthStatus.opencode,
       onLogin: () => onProviderLogin('opencode'),
     },
+    kimi: {
+      authStatus: providerAuthStatus.kimi,
+      onLogin: () => onProviderLogin('kimi'),
+    },
   }), [
     onProviderLogin,
     providerAuthStatus.claude,
     providerAuthStatus.codex,
     providerAuthStatus.cursor,
     providerAuthStatus.opencode,
+    providerAuthStatus.kimi,
   ]);
 
   useEffect(() => {

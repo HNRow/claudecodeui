@@ -8,7 +8,7 @@ import type { ProviderRunFunction } from '@/shared/types.js';
 import { normalizeProjectPath } from '../../shared/utils.js';
 
 /** The providers an Agent API run can start: the ones with a runtime and a model catalog. */
-const AGENT_RUN_PROVIDERS = ['claude', 'cursor', 'codex', 'opencode'];
+const AGENT_RUN_PROVIDERS = ['claude', 'cursor', 'codex', 'opencode', 'kimi'];
 
 /** What the route reads off a session row it continues: the row, not the request, says which provider and project a session belongs to. */
 type AgentSessionRow = {
@@ -41,6 +41,7 @@ type AgentRouterDependencies = {
   queryCursor: ProviderRunFunction;
   queryCodex: ProviderRunFunction;
   queryOpenCode: ProviderRunFunction;
+  queryKimi: ProviderRunFunction;
   GithubClient: typeof import('@octokit/rest').Octokit;
 };
 
@@ -65,6 +66,7 @@ export function createAgentRouter(dependencies: AgentRouterDependencies): expres
   const spawnCursor = dependencies.queryCursor;
   const queryCodex = dependencies.queryCodex;
   const spawnOpenCode = dependencies.queryOpenCode;
+  const queryKimi = dependencies.queryKimi;
   const Octokit = dependencies.GithubClient;
   const router = express.Router();
 
@@ -1075,6 +1077,17 @@ export function createAgentRouter(dependencies: AgentRouterDependencies): expres
         console.log('Starting OpenCode CLI session');
 
         await spawnOpenCode(message.trim(), {
+          projectPath: finalProjectPath,
+          cwd: finalProjectPath,
+          sessionId: appSessionId,
+          model: model || providerModels?.DEFAULT,
+          effort,
+          permissionMode: 'bypassPermissions' // Agent runs are non-interactive, like the other providers above
+        }, run.writer);
+      } else if (provider === 'kimi') {
+        console.log('Starting Kimi Code CLI session');
+
+        await queryKimi(message.trim(), {
           projectPath: finalProjectPath,
           cwd: finalProjectPath,
           sessionId: appSessionId,

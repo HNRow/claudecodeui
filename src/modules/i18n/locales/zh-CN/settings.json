@@ -379,7 +379,19 @@
       },
       "opencode": {
         "description": "OpenCode CLI 助手"
+      },
+      "kimi": {
+        "description": "Kimi Code CLI 助手"
       }
+    },
+    "kimiLogin": {
+      "description": "Kimi Code CLI 使用设备码登录。打开下方链接并输入代码以授权本机。",
+      "url": "验证链接",
+      "code": "用户代码",
+      "waiting": "正在等待授权…",
+      "succeeded": "已登录 Kimi Code CLI。",
+      "failed": "Kimi 登录未完成。",
+      "retry": "重新开始登录"
     },
     "connectionStatus": "连接状态",
     "cli": {
@@ -524,7 +536,8 @@
       "claude": "Model Context Protocol 服务器为 Claude 提供额外的工具和数据源",
       "cursor": "Model Context Protocol 服务器为 Cursor 提供额外的工具和数据源",
       "codex": "Model Context Protocol 服务器为 Codex 提供额外的工具和数据源",
-      "opencode": "Model Context Protocol 服务器为 OpenCode 提供额外的工具和数据源"
+      "opencode": "Model Context Protocol 服务器为 OpenCode 提供额外的工具和数据源",
+      "kimi": "Model Context Protocol 服务器为 Kimi 提供额外的工具和数据源"
     },
     "addButton": "添加 MCP 服务器",
     "empty": "未配置 MCP 服务器",

@@ -401,7 +401,19 @@
       },
       "opencode": {
         "description": "OpenCode CLI assistant"
+      },
+      "kimi": {
+        "description": "Kimi Code CLI assistant"
       }
+    },
+    "kimiLogin": {
+      "description": "Kimi Code CLI uses a device login. Open the link below and enter the code to authorize this machine.",
+      "url": "Verification link",
+      "code": "User code",
+      "waiting": "Waiting for authorization…",
+      "succeeded": "Logged in to Kimi Code CLI.",
+      "failed": "Kimi login did not complete.",
+      "retry": "Start login again"
     },
     "connectionStatus": "Connection Status",
     "cli": {
@@ -559,7 +571,8 @@
       "claude": "Model Context Protocol servers provide additional tools and data sources to Claude",
       "cursor": "Model Context Protocol servers provide additional tools and data sources to Cursor",
       "codex": "Model Context Protocol servers provide additional tools and data sources to Codex",
-      "opencode": "Model Context Protocol servers provide additional tools and data sources to OpenCode"
+      "opencode": "Model Context Protocol servers provide additional tools and data sources to OpenCode",
+      "kimi": "Model Context Protocol servers provide additional tools and data sources to Kimi"
     },
     "addButton": "Add MCP Server",
     "empty": "No MCP servers configured",

@@ -5,7 +5,7 @@ import { sessionsService } from '@/modules/providers/services/sessions.service.j
 import { resolveClaudeCodeExecutablePath } from '@/shared/claude-cli-path.js';
 import type { IProvider } from '@/shared/interfaces.js';
 import type { CliVersionProbe, LLMProvider } from '@/shared/types.js';
-import { AppError, IS_PLATFORM, stripAnsiSequences } from '@/shared/utils.js';
+import { AppError, IS_PLATFORM, resolveKimiCliPath, stripAnsiSequences } from '@/shared/utils.js';
 
 /** How long the registry's answer is reused before it is asked again. */
 const LATEST_VERSION_TTL_MS = 60 * 60 * 1000;
@@ -62,6 +62,12 @@ const CLI_UPDATERS: Partial<Record<LLMProvider, CliUpdater>> = {
     resolveCommand: () => 'opencode',
     args: ['upgrade'],
     npmPackage: 'opencode-ai',
+  },
+  kimi: {
+    // Kimi's native installer updates itself; it is not an npm package.
+    resolveCommand: () => resolveKimiCliPath(),
+    args: ['upgrade'],
+    npmPackage: null,
   },
 };
 
@@ -181,6 +187,7 @@ function getProviderLabel(provider: LLMProvider): string {
     codex: 'Codex',
     cursor: 'Cursor CLI',
     opencode: 'OpenCode',
+    kimi: 'Kimi Code',
   };
   return labels[provider];
 }
