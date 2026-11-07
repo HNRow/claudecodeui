@@ -373,14 +373,21 @@ test('custom models can pin their own gateway and never leak the token to the ca
     baseUrl: null,
   });
   assert.equal('baseUrl' in cleared.model, false);
-  assert.equal(service.getCustomModelEndpoint('claude', 'deepseek-v4.1-flash'), null);
+  assert.deepEqual(
+    service.getCustomModelEndpoint('claude', 'deepseek-v4.1-flash'),
+    { baseUrl: null, apiKey: null },
+  );
 });
 
 test('models without a gateway inherit the host environment', async () => {
   const { service } = createTestService();
   await service.createCustomModel('claude', { model: 'Plain', id: 'plain' });
 
-  assert.equal(service.getCustomModelEndpoint('claude', 'plain'), null);
+  // A custom model without an override is reported as such (not null), so the
+  // runtime knows to inherit the host environment instead of dropping it.
+  assert.deepEqual(service.getCustomModelEndpoint('claude', 'plain'), { baseUrl: null, apiKey: null });
+  // Built-in models have no record at all.
+  assert.equal(service.getCustomModelEndpoint('claude', 'not-in-catalog'), null);
 });
 
 test('custom models without declared effort levels expose no effort', async () => {

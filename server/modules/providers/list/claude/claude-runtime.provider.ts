@@ -293,7 +293,7 @@ function matchesToolPermission(entry: string, toolName: string, input: unknown) 
  */
 export function buildClaudeSdkEnv(
   hostEnv: NodeJS.ProcessEnv = process.env,
-  endpoint: { baseUrl: string; apiKey: string | null } | null = null,
+  endpoint: { baseUrl: string | null; apiKey: string | null } | null = null,
 ): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = {
     CLAUDE_CODE_ARTIFACT: '1',
@@ -302,7 +302,30 @@ export function buildClaudeSdkEnv(
     CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS: String(BG_WAIT_CEILING_MS),
   };
 
+  const dropDefaultModelAliases = (): void => {
+    delete env.ANTHROPIC_MODEL;
+    for (const key of Object.keys(env)) {
+      if (/^ANTHROPIC_DEFAULT_[A-Z0-9_]+_MODEL$/.test(key)) {
+        delete env[key];
+      }
+    }
+  };
+
   if (!endpoint) {
+    // Built-in model: it must reach the official deployment, not whatever
+    // gateway the host process was started with. A host without a gateway
+    // already is the official setup, so leave it untouched.
+    if (hostEnv.ANTHROPIC_BASE_URL) {
+      delete env.ANTHROPIC_BASE_URL;
+      delete env.ANTHROPIC_AUTH_TOKEN;
+      delete env.ANTHROPIC_API_KEY;
+      dropDefaultModelAliases();
+    }
+    return env;
+  }
+
+  if (!endpoint.baseUrl) {
+    // Custom model without its own gateway inherits the host environment.
     return env;
   }
 
@@ -310,12 +333,7 @@ export function buildClaudeSdkEnv(
   // model aliases: those would resolve `opus`-style ids back to the host
   // provider and the custom id would never reach the gateway.
   env.ANTHROPIC_BASE_URL = endpoint.baseUrl;
-  delete env.ANTHROPIC_MODEL;
-  for (const key of Object.keys(env)) {
-    if (/^ANTHROPIC_DEFAULT_[A-Z0-9_]+_MODEL$/.test(key)) {
-      delete env[key];
-    }
-  }
+  dropDefaultModelAliases();
   if (endpoint.apiKey) {
     env.ANTHROPIC_AUTH_TOKEN = endpoint.apiKey;
     delete env.ANTHROPIC_API_KEY;
@@ -1127,8 +1145,14 @@ async function queryClaudeSDK(
 
     // Per-model gateway: a custom model may carry its own base URL and token,
     // so a local vLLM model and the official API can coexist in one catalog.
-    const endpoint = resolvedModel || options.model
-      ? context.getCustomModelEndpoint?.(resolvedModel || options.model) ?? null
+    // `default`/`best` are resolved by the CLI itself, so look their endpoint
+    // up under the host's ANTHROPIC_MODEL, which is what the CLI will use.
+    const requestedModel = resolvedModel || options.model;
+    const endpointModel = requestedModel === 'default' || requestedModel === 'best'
+      ? (process.env.ANTHROPIC_MODEL?.trim() || requestedModel)
+      : requestedModel;
+    const endpoint = requestedModel
+      ? context.getCustomModelEndpoint?.(endpointModel) ?? null
       : null;
 
     const sdkOptions = mapCliOptionsToSDK({

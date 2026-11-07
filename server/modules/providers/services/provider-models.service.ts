@@ -553,9 +553,12 @@ export const createProviderModelsService = (dependencies: ProviderModelsServiceD
   const getCustomModelEndpoint = (
     provider: LLMProvider,
     modelId: string,
-  ): { baseUrl: string; apiKey: string | null } | null => {
+  ): { baseUrl: string | null; apiKey: string | null } | null => {
+    // Returns null only for built-in models: the runtime must know that a
+    // custom model without a gateway still belongs to the user's catalog and
+    // should inherit the host environment, while a built-in one must not.
     const record = catalog.findCustomProviderModelByModelId(provider, modelId);
-    if (!record?.baseUrl) {
+    if (!record) {
       return null;
     }
 

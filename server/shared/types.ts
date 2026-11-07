@@ -669,7 +669,7 @@ export type ProviderRuntimeContext = {
    * environment. Optional so runtimes and tests that never route a model to a
    * gateway can omit it; the Claude runtime uses it per turn.
    */
-  getCustomModelEndpoint?(modelId: string): { baseUrl: string; apiKey: string | null } | null;
+  getCustomModelEndpoint?(modelId: string): { baseUrl: string | null; apiKey: string | null } | null;
   normalizeMessage(raw: unknown, sessionId: string | null): NormalizedMessage[];
   isProviderInstalled(): Promise<boolean>;
   /**

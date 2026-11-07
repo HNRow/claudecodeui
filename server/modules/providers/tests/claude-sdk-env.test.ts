@@ -18,8 +18,13 @@ test('SDK sessions are labeled claudecodeui, and a host value wins', () => {
   assert.equal(buildClaudeSdkEnv({ CLAUDE_CODE_ENTRYPOINT: 'x' }).CLAUDE_CODE_ENTRYPOINT, 'x');
 });
 
-test('host env vars are still forwarded', () => {
-  assert.equal(buildClaudeSdkEnv({ ANTHROPIC_BASE_URL: 'http://proxy' }).ANTHROPIC_BASE_URL, 'http://proxy');
+test('host env vars are still forwarded for built-in models', () => {
+  assert.equal(buildClaudeSdkEnv({ HTTPS_PROXY: 'http://proxy' }).HTTPS_PROXY, 'http://proxy');
+  assert.equal(
+    buildClaudeSdkEnv({ ANTHROPIC_BASE_URL: 'http://proxy' }, { baseUrl: null, apiKey: null })
+      .ANTHROPIC_BASE_URL,
+    'http://proxy',
+  );
 });
 
 test('a per-model endpoint overrides the host gateway and token', () => {
@@ -40,6 +45,41 @@ test('a per-model endpoint overrides the host gateway and token', () => {
   assert.equal(env.ANTHROPIC_MODEL, undefined);
   assert.equal(env.ANTHROPIC_DEFAULT_OPUS_MODEL, undefined);
   assert.equal(env.ANTHROPIC_API_KEY, undefined);
+});
+
+test('a built-in model ignores the host gateway and keeps the official login', () => {
+  const env = buildClaudeSdkEnv(
+    {
+      ANTHROPIC_BASE_URL: 'http://10.0.0.6:8000',
+      ANTHROPIC_AUTH_TOKEN: 'gateway-token',
+      ANTHROPIC_API_KEY: 'gateway-key',
+      ANTHROPIC_MODEL: 'deepseek-v4.1-flash',
+      CLAUDE_CODE_MAX_CONTEXT_TOKENS: '1000000',
+    },
+    null,
+  );
+
+  assert.equal(env.ANTHROPIC_BASE_URL, undefined);
+  assert.equal(env.ANTHROPIC_AUTH_TOKEN, undefined);
+  assert.equal(env.ANTHROPIC_API_KEY, undefined);
+  assert.equal(env.ANTHROPIC_MODEL, undefined);
+  // Unrelated host settings survive.
+  assert.equal(env.CLAUDE_CODE_MAX_CONTEXT_TOKENS, '1000000');
+});
+
+test('a host without a gateway is left alone for built-in models', () => {
+  const env = buildClaudeSdkEnv({ ANTHROPIC_API_KEY: 'official-key' }, null);
+  assert.equal(env.ANTHROPIC_API_KEY, 'official-key');
+});
+
+test('a custom model without its own gateway inherits the host environment', () => {
+  const env = buildClaudeSdkEnv(
+    { ANTHROPIC_BASE_URL: 'http://10.0.0.6:8000', ANTHROPIC_AUTH_TOKEN: 'gateway-token' },
+    { baseUrl: null, apiKey: null },
+  );
+
+  assert.equal(env.ANTHROPIC_BASE_URL, 'http://10.0.0.6:8000');
+  assert.equal(env.ANTHROPIC_AUTH_TOKEN, 'gateway-token');
 });
 
 test('a per-model endpoint without a token keeps the host credentials', () => {
