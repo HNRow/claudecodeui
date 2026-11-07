@@ -163,6 +163,9 @@ const PROVIDER_CAPABILITIES: Record<LLMProvider, ProviderCapabilities> = {
     effortLevels: ['low', 'high', 'max'],
     supportsMessageEditing: false,
     supportsSessionForking: false,
+    // The ACP runtime has neither a side-question path nor turn steering yet.
+    supportsSideQuestions: false,
+    supportsSteering: false,
   },
 };
 

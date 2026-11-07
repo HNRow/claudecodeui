@@ -620,6 +620,7 @@ function ChatInterface({
           placeholder={t('input.placeholder', { provider: selectedProviderLabel })}
           isTextareaExpanded={isTextareaExpanded}
           supportsSideQuestions={supportsSideQuestions}
+          sendByCtrlEnter={sendByCtrlEnter}
         />
         </div>
       </div>

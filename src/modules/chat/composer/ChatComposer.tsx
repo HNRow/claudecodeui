@@ -132,6 +132,8 @@ type ChatComposerProps = {
   onInputFocusChange?: (focused: boolean) => void;
   placeholder: string;
   isTextareaExpanded: boolean;
+  /** 发送菜单据此提示 Enter 与 Ctrl+Enter 的差异。 */
+  sendByCtrlEnter?: boolean;
 };
 
 /**
@@ -211,6 +213,7 @@ export default function ChatComposer({
   onInputFocusChange,
   placeholder,
   isTextareaExpanded,
+  sendByCtrlEnter = false,
 }: ChatComposerProps) {
   const { t } = useTranslation('chat');
   const fileDropdownRef = useRef<HTMLDivElement | null>(null);

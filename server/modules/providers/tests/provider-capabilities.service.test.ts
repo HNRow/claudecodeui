@@ -48,6 +48,7 @@ test('side questions are supported by claude, codex and opencode, not by cursor'
     codex: true,
     cursor: false,
     opencode: true,
+    kimi: false,
   };
   for (const [provider, supported] of Object.entries(expected) as Array<[LLMProvider, boolean]>) {
     const capabilities = providerCapabilitiesService.getProviderCapabilities(provider) as unknown as Record<string, unknown>;
