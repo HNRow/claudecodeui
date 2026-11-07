@@ -10,8 +10,49 @@ import { KimiProviderModels } from '@/modules/providers/list/kimi/kimi-models.pr
 import { KimiSkillsProvider } from '@/modules/providers/list/kimi/kimi-skills.provider.js';
 import {
   buildHistoryMessages,
+  KimiSessionsProvider,
   normalizeKimiSessionUpdate,
 } from '@/modules/providers/list/kimi/kimi-sessions.provider.js';
+
+const TEST_SESSION_ID = 'session_00000000-0000-4000-8000-000000000001';
+
+test('Kimi history uses wire fallback only after ACP fails', async () => {
+  const calls: string[] = [];
+  const fallbackMessage = buildHistoryMessages([
+    { sessionUpdate: 'agent_message_chunk', messageId: 'a1', content: { type: 'text', text: 'recovered' } },
+  ] as never, TEST_SESSION_ID, 1700000000000)[0];
+  assert.ok(fallbackMessage);
+  const provider = new KimiSessionsProvider({
+    loadAcpHistory: async () => { calls.push('acp'); throw new Error('ACP failed'); },
+    loadWireHistory: async () => { calls.push('wire'); return [fallbackMessage]; },
+  });
+  const result = await provider.fetchHistory(TEST_SESSION_ID, { limit: 20, offset: 0 });
+  assert.deepEqual(calls, ['acp', 'wire']);
+  assert.equal(result.total, 1);
+  assert.equal(result.messages[0]?.content, 'recovered');
+
+  const healthy = new KimiSessionsProvider({
+    loadAcpHistory: async () => [fallbackMessage],
+    loadWireHistory: async () => { throw new Error('must not be called'); },
+  });
+  assert.equal((await healthy.fetchHistory(TEST_SESSION_ID)).total, 1);
+});
+
+test('Kimi history propagates the ACP error when wire fallback also fails', async () => {
+  const provider = new KimiSessionsProvider({
+    loadAcpHistory: async () => { throw new Error('ACP failed'); },
+    loadWireHistory: async () => { throw new Error('wire failed'); },
+  });
+  await assert.rejects(provider.fetchHistory(TEST_SESSION_ID), /ACP failed/);
+});
+
+test('Kimi history does not turn a failed replay with empty fallback into an empty session', async () => {
+  const provider = new KimiSessionsProvider({
+    loadAcpHistory: async () => { throw new Error('ACP failed'); },
+    loadWireHistory: async () => [],
+  });
+  await assert.rejects(provider.fetchHistory(TEST_SESSION_ID), /ACP failed/);
+});
 
 const withKimiHome = async (
   runTest: (context: { home: string; workspace: string }) => Promise<void>,

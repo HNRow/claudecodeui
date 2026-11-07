@@ -142,7 +142,7 @@ function WorkspaceMain({
   }
 
   return (
-    <div className="flex h-full flex-col">
+    <div className="flex h-full min-w-0 flex-col">
       <WorkspaceHeader
         activeTab={activeTab}
         setActiveTab={setActiveTab}
@@ -156,7 +156,7 @@ function WorkspaceMain({
       />
 
       <div className="flex min-h-0 flex-1 overflow-hidden">
-        <div className={`flex min-h-0 min-w-[200px] flex-col overflow-hidden ${editorExpanded ? 'hidden' : ''} flex-1`}>
+        <div className={`flex min-h-0 min-w-0 flex-col overflow-hidden ${editorExpanded ? 'hidden' : ''} flex-1`}>
           <div className={`h-full ${activeTab === 'chat' ? 'block' : 'hidden'}`}>
             <WorkspaceErrorBoundary showDetails>
               <ChatInterface

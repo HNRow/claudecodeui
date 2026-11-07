@@ -104,7 +104,9 @@ scroll state.**
 `ChatMessagesPane` renders a single `div` with `ref={scrollContainerRef}`,
 `onWheel={onWheel}`, `onTouchMove={onTouchMove}` and the classes
 `chat-messages-pane relative min-h-0 flex-1 overflow-y-auto overflow-x-hidden`, then a
-`max-w-[54.25rem]` inner column of rows. The export menu inside it is
+a fluid `w-full max-w-none` inner column of rows. Transcript and composer share
+the available workspace width instead of leaving a fixed-width reading column
+on large displays. The export menu inside it is
 `sticky right-4 top-3`, which is why it stays put while the list moves. The pane is
 `memo`ised, and neither it, `MessageComponent`, nor any tool view reads or writes a scroll
 offset.

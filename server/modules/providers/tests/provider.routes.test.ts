@@ -596,3 +596,52 @@ test('the workflow agent route reads an agent\'s timeline and status from its ru
     assert.equal(missing.error.code, 'WORKFLOW_AGENT_NOT_FOUND');
   });
 });
+
+test('custom model routes store a per-model gateway without returning its token', async () => {
+  await withProviderServer(async (baseUrl) => {
+    const created = await fetch(`${baseUrl}/api/providers/claude/models`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        model: 'Local DeepSeek',
+        id: 'deepseek-v4.1-flash',
+        baseUrl: ' http://10.0.0.6:8000 ',
+        apiKey: 'local-secret',
+      }),
+    });
+    const payload = await created.json() as {
+      data: { model: { recordId: number; baseUrl?: string; hasApiKey?: boolean; apiKey?: string } };
+    };
+    assert.equal(created.status, 201);
+    assert.equal(payload.data.model.baseUrl, 'http://10.0.0.6:8000');
+    assert.equal(payload.data.model.hasApiKey, true);
+    assert.equal(payload.data.model.apiKey, undefined);
+
+    for (const [index, invalid] of ['file:///tmp/x', 'not-a-url', 42].entries()) {
+      const response = await fetch(`${baseUrl}/api/providers/claude/models`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ model: `Bad ${index}`, id: `bad-${index}`, baseUrl: invalid }),
+      });
+      assert.equal(response.status, 400, String(invalid));
+      const body = await response.json() as { error?: { code: string } };
+      assert.equal(body.error?.code, 'INVALID_MODEL_BASE_URL');
+    }
+
+    // Clearing the gateway clears the token too, so it cannot follow the host.
+    const cleared = await fetch(
+      `${baseUrl}/api/providers/claude/models/${payload.data.model.recordId}`,
+      {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ model: 'Local DeepSeek', id: 'deepseek-v4.1-flash', baseUrl: '' }),
+      },
+    );
+    const clearedPayload = await cleared.json() as {
+      data: { model: { baseUrl?: string; hasApiKey?: boolean } };
+    };
+    assert.equal(cleared.status, 200);
+    assert.equal(clearedPayload.data.model.baseUrl, undefined);
+    assert.equal(clearedPayload.data.model.hasApiKey, undefined);
+  });
+});

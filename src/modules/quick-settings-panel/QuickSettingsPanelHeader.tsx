@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 
 type QuickSettingsPanelHeaderProps = {
   isPinned: boolean;
-  // False on mobile, where the panel is always an overlay and the pin is hidden.
+  // False when the viewport is too narrow for a docked third column.
   canPin: boolean;
   onTogglePin: () => void;
   onClose: () => void;

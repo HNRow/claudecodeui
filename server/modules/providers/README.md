@@ -93,6 +93,27 @@ import the service from `server/modules/providers/index.ts`.
 - `sessions` handles runtime event normalization and history fetches.
 - `sessionSynchronizer` handles file-backed session indexing into `sessionsDb`.
 
+## Claude Authentication
+
+`GET /api/providers/claude/auth/status` preserves CLI credential priority: API
+key/auth token, explicit OAuth token, then the stored subscription login. A
+usable `.credentials.json` takes priority; missing, invalid or expired files
+fall back to the default macOS `Claude Code-credentials` Keychain entry. The
+response identifies that store as `method: "keychain"`. A refreshable OAuth
+session remains authenticated even if its short-lived access token expired.
+
+`CLAUDE_CONFIG_DIR` selects file credentials and settings together. A custom
+directory never borrows the default Keychain account. Keychain reads use a
+bounded `/usr/bin/security` invocation without a shell; failures are sanitized.
+Status checks never refresh tokens or write credentials. API-key subscription
+bypass warnings also recognize usable Keychain logins.
+
+Run the authentication regression tests:
+
+```sh
+npx tsx --tsconfig server/tsconfig.json --test server/modules/providers/tests/claude-auth.test.ts
+```
+
 ## Kimi Provider Notes
 
 Kimi Code CLI is integrated through its official ACP (Agent Client Protocol)
@@ -426,4 +447,53 @@ alongside the implementation.
   user/project skill folders.
 - Assuming one provider's MCP config file format works for the others.
 
+## External CLI running status
+
+`GET /api/providers/sessions/running` merges CloudCLI chat runs, provider
+background tasks, and external Claude, Kimi, and Codex CLI activity. External
+entries use the indexed app session ID, preserve any retained replay sequence,
+and cannot be interrupted through CloudCLI. CloudCLI-owned runs and background
+tasks take precedence; unknown provider sessions are skipped.
+
+Codex detection reads `$CODEX_HOME/thread-writer-locks/*.lock` (default
+`~/.codex`) and inspects at most 256 regular, empty UUID lock files per poll.
+One `execFile('lsof', ...)` call checks live descriptor owners each time; lock
+existence, mtime, and retained daemon locks alone never imply a running turn.
+Unavailable tools, diagnostics, and execution failures return no liveness
+evidence. A normal lsof partial match (exit 1 without diagnostics) still reports
+its verified holders when other requested locks are stale.
+
+The shared Codex history resolver first checks `sessionsDb.jsonl_path`, then
+the existing sessions/archive lookup. Only the latest `event_msg` lifecycle
+record matters: `task_started` is busy and `task_complete` is idle. `startedAt`
+uses the task timestamp, falling back to lock mtime. Missing, corrupt, or
+partially written transcripts fail closed. Codex source files are never changed.
+
+Parsed state is bounded and cached by rollout path, mtime, size, and file identity.
+Unchanged files are not reread. Growing files have their old prefix fingerprint
+verified before only the new JSONL suffix is parsed; a rewrite, replacement, or
+truncation resets parsing. This prefix read prevents stale busy state after an
+in-place rewrite. Process ownership is never cached.
+
+Before resuming a Codex thread, the runtime separately checks its live lock
+holder. A completed turn can still have an exclusive writer in another client;
+it is idle for the running list but unavailable to a second `codex exec`.
+Occupied threads fail before exec starts, with guidance to continue in the
+original client, close its session to release the writer, or fork the conversation.
+The runtime never removes locks, stops external processes, silently forks, or
+retries the user's command. A writer acquired after preflight receives the same
+actionable error instead of a raw CLI stderr dump. Missing `lsof` falls back to
+Codex's own conflict detection; orphaned files do not block a resume.
+
+Run the isolated process-holder regression tests with:
+
+```bash
+npx tsx --tsconfig server/tsconfig.json --test \
+  server/modules/providers/tests/codex-cli-liveness.test.ts \
+  server/modules/providers/tests/codex-runtime.test.ts \
+  server/modules/providers/tests/sessions.service.test.ts
+```
+
+Fixtures open only temporary locks in a private Codex home and stop only their
+own Node child; they do not touch real Codex processes or storage.
 

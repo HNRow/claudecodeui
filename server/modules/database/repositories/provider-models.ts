@@ -14,10 +14,12 @@ type CustomProviderModelRow = {
   sort_order: number;
   effort_values: string | null;
   effort_default: string | null;
+  base_url: string | null;
+  api_key: string | null;
 };
 
 const CUSTOM_PROVIDER_MODEL_COLUMNS = `
-  id, provider, model_id, model_name, sort_order, effort_values, effort_default
+  id, provider, model_id, model_name, sort_order, effort_values, effort_default, base_url, api_key
 `;
 
 /**
@@ -73,6 +75,8 @@ const toCustomProviderModelRecord = (
   model: row.model_name,
   sortOrder: row.sort_order,
   effort: readStoredEffort(row),
+  baseUrl: row.base_url,
+  apiKey: row.api_key,
 });
 
 const readCustomProviderModelRow = (
@@ -143,9 +147,9 @@ export const providerModelsDb = {
     const effort = toStoredEffortColumns(input.effort);
     const result = db.prepare(`
       INSERT INTO provider_models (
-        provider, model_id, model_name, sort_order, effort_values, effort_default
+        provider, model_id, model_name, sort_order, effort_values, effort_default, base_url, api_key
       )
-      VALUES (?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       provider,
       input.id,
@@ -153,6 +157,8 @@ export const providerModelsDb = {
       nextOrder.next_order,
       effort.values,
       effort.defaultValue,
+      input.baseUrl ?? null,
+      input.apiKey ?? null,
     );
 
     const row = readCustomProviderModelRow(provider, Number(result.lastInsertRowid));
@@ -190,6 +196,23 @@ export const providerModelsDb = {
           SET effort_values = ?, effort_default = ?
           WHERE provider = ? AND id = ?
         `).run(effort.values, effort.defaultValue, provider, recordId);
+      }
+
+      // Endpoint fields follow the same "omitted keeps, null clears" rule as
+      // effort, so an edit that only renames a model cannot drop its gateway.
+      if (input.baseUrl !== undefined) {
+        db.prepare(`
+          UPDATE provider_models
+          SET base_url = ?
+          WHERE provider = ? AND id = ?
+        `).run(input.baseUrl, provider, recordId);
+      }
+      if (input.apiKey !== undefined) {
+        db.prepare(`
+          UPDATE provider_models
+          SET api_key = ?
+          WHERE provider = ? AND id = ?
+        `).run(input.apiKey, provider, recordId);
       }
 
       if (previous.model_id !== input.id) {

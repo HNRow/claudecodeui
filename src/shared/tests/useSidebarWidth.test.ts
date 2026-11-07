@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 
-import { test } from 'vitest';
+import { act, renderHook } from '@testing-library/react';
+import { test, vi } from 'vitest';
 
 import {
   SIDEBAR_WIDTH_DEFAULT,
@@ -8,6 +9,7 @@ import {
   SIDEBAR_WIDTH_MIN,
   clampSidebarWidth,
   parseSidebarWidth,
+  useSidebarWidth,
 } from '@/shared/hooks/useSidebarWidth';
 
 test('the sidebar width is clamped to the supported range', () => {
@@ -15,6 +17,29 @@ test('the sidebar width is clamped to the supported range', () => {
   assert.equal(clampSidebarWidth(SIDEBAR_WIDTH_MAX + 100), SIDEBAR_WIDTH_MAX);
   assert.equal(clampSidebarWidth(320), 320);
   assert.equal(clampSidebarWidth(320.6), 321);
+});
+
+test('a wide sidebar adapts to the viewport and restores the preferred width after expanding', () => {
+  localStorage.setItem('sidebar-width', '640');
+  vi.stubGlobal('innerWidth', 1440);
+  try {
+    const { result } = renderHook(() => useSidebarWidth());
+    assert.equal(result.current.width, 576);
+    act(() => {
+      vi.stubGlobal('innerWidth', 768);
+      window.dispatchEvent(new Event('resize'));
+    });
+    assert.equal(result.current.width, 307);
+    assert.equal(localStorage.getItem('sidebar-width'), '640', 'resizing must not overwrite the user preference');
+    act(() => {
+      vi.stubGlobal('innerWidth', 1920);
+      window.dispatchEvent(new Event('resize'));
+    });
+    assert.equal(result.current.width, 640);
+  } finally {
+    vi.unstubAllGlobals();
+    localStorage.removeItem('sidebar-width');
+  }
 });
 
 test('a stored width is restored, and a broken one falls back to the default', () => {

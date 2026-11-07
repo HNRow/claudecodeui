@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState, useSyncExternalStore } from 'react';
 
 export const SIDEBAR_WIDTH_STORAGE_KEY = 'sidebar-width';
 export const SIDEBAR_WIDTH_DEFAULT = 288; // the previous fixed md:w-72
@@ -24,6 +24,17 @@ const readStoredWidth = (): number => {
   }
 };
 
+/** Keeps the displayed width responsive without replacing the user's stored desktop preference. */
+function subscribeViewportWidth(onChange: () => void): () => void {
+  window.addEventListener('resize', onChange);
+  return () => window.removeEventListener('resize', onChange);
+}
+
+/** Reads the current layout viewport so rotation and window resizing recalculate the sidebar ceiling. */
+function readViewportWidth(): number {
+  return typeof window === 'undefined' ? 0 : window.innerWidth;
+}
+
 /**
  * Desktop sidebar width, persisted across reloads.
  *
@@ -37,7 +48,13 @@ export function useSidebarWidth(): {
   setWidth: (value: number, persist?: boolean) => void;
   resetWidth: () => void;
 } {
-  const [width, setWidthState] = useState<number>(SIDEBAR_WIDTH_DEFAULT);
+  // Retain the preferred desktop size while temporarily capping it on a narrower viewport.
+  const [preferredWidth, setWidthState] = useState<number>(SIDEBAR_WIDTH_DEFAULT);
+  const viewportWidth = useSyncExternalStore(subscribeViewportWidth, readViewportWidth, () => 0);
+  const viewportCeiling = viewportWidth > 0
+    ? Math.max(SIDEBAR_WIDTH_MIN, Math.floor(viewportWidth * 0.4))
+    : SIDEBAR_WIDTH_MAX;
+  const width = Math.min(preferredWidth, viewportCeiling);
 
   // Read after mount so server-side rendering and hydration see the same value.
   useEffect(() => {

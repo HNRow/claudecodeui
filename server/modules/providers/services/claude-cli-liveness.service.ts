@@ -2,6 +2,8 @@ import fsp from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
+import { isProcessAlive } from '@/shared/utils.js';
+
 /**
  * One Claude CLI process that is currently producing a response.
  *
@@ -38,12 +40,8 @@ const MAX_REGISTRY_FILES = 256;
  * reused pid cannot be mistaken for the original process.
  */
 async function isRecordedProcessAlive(pid: number, procStart: unknown): Promise<boolean> {
-  try {
-    process.kill(pid, 0);
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException)?.code !== 'EPERM') {
-      return false;
-    }
+  if (!isProcessAlive(pid)) {
+    return false;
   }
 
   if (process.platform !== 'linux' || typeof procStart !== 'string' || !procStart) {

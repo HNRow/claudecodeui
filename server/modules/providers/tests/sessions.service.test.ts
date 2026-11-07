@@ -7,10 +7,12 @@ import test from 'node:test';
 import { closeConnection, initializeDatabase, projectsDb, sessionsDb } from '@/modules/database/index.js';
 import { providerRegistry } from '@/modules/providers/provider.registry.js';
 import { sessionsService } from '@/modules/providers/services/sessions.service.js';
+import { CODEX_STARTED_AT, CODEX_THREAD_ID, codexLifecycle, withCodexCliFixture } from '@/modules/providers/tests/codex-cli.fixture.js';
 import { chatRunRegistry } from '@/modules/websocket/index.js';
 import type { IProvider } from '@/shared/interfaces.js';
 import type { BackgroundTaskSummary } from '@/shared/types.js';
 
+/** Runs service assertions against a temporary database without touching the user's index. */
 async function withIsolatedDatabase(runTest: () => void | Promise<void>): Promise<void> {
   const previousDatabasePath = process.env.DATABASE_PATH;
   const tempDirectory = await mkdtemp(path.join(os.tmpdir(), 'sessions-service-db-'));
@@ -202,7 +204,7 @@ test('history pages are sliced from the cached full transcript and see appended 
  * the running-sessions list without an SDK run behind it.
  */
 async function withProviders(
-  runtimes: Partial<Record<'claude' | 'codex', IProvider['runtime']>>,
+  runtimes: Partial<Record<'claude' | 'codex' | 'kimi', IProvider['runtime']>>,
   runTest: () => void | Promise<void>,
 ): Promise<void> {
   const realListProviders = providerRegistry.listProviders;
@@ -241,6 +243,39 @@ async function withClaudeCliRegistry(
     await runTest();
   } finally {
     (os as unknown as { homedir: () => string }).homedir = realHomedir;
+    await rm(homeDirectory, { recursive: true, force: true });
+  }
+}
+
+const KIMI_CLI_SESSION_ID = 'session_00000000-0000-4000-8000-000000000001';
+
+/** Runs one service test with an isolated external Kimi session in the requested turn state. */
+async function withKimiCliSession(
+  turnType: 'agent.turn.started' | 'agent.turn.ended',
+  runTest: () => void | Promise<void>,
+): Promise<void> {
+  const previousHome = process.env.KIMI_CODE_HOME;
+  const homeDirectory = await mkdtemp(path.join(os.tmpdir(), 'kimi-cli-liveness-'));
+  const lockDirectory = path.join(homeDirectory, 'locks', 'sessions');
+  const agentDirectory = path.join(
+    homeDirectory, 'sessions', 'workspace', KIMI_CLI_SESSION_ID, 'agents', 'main',
+  );
+  await mkdir(lockDirectory, { recursive: true });
+  await mkdir(agentDirectory, { recursive: true });
+  await writeFile(
+    path.join(lockDirectory, `${KIMI_CLI_SESSION_ID}.lock`),
+    JSON.stringify({ pid: process.pid, startedAt: 3_000, clientIdentity: 'kimi_code_cli' }),
+  );
+  await writeFile(
+    path.join(agentDirectory, 'wire.jsonl'),
+    `${JSON.stringify({ type: turnType, time: 4_000 })}\n`,
+  );
+  process.env.KIMI_CODE_HOME = homeDirectory;
+  try {
+    await runTest();
+  } finally {
+    if (previousHome === undefined) delete process.env.KIMI_CODE_HOME;
+    else process.env.KIMI_CODE_HOME = previousHome;
     await rm(homeDirectory, { recursive: true, force: true });
   }
 }
@@ -331,6 +366,134 @@ test('running sessions with no background work are the chat runs alone', { concu
         }]);
       },
     ));
+  });
+});
+
+test('running sessions report a turn driven by the Kimi CLI', { concurrency: false }, async () => {
+  await withIsolatedDatabase(async () => {
+    sessionsDb.createAppSession('kimi-cli-app', 'kimi', '/tmp/running-project');
+    sessionsDb.assignProviderSessionId('kimi-cli-app', KIMI_CLI_SESSION_ID);
+
+    await withKimiCliSession('agent.turn.started', async () => await withClaudeCliRegistry([], async () => await withProviders(
+      { kimi: { run: async () => undefined, abort: () => false } },
+      async () => {
+        assert.deepEqual(await sessionsService.listRunningSessions(), [{
+          sessionId: 'kimi-cli-app',
+          provider: 'kimi',
+          startedAt: 4_000,
+          lastSeq: 0,
+          canInterrupt: false,
+          statusText: 'Running in the Kimi CLI',
+        }]);
+      },
+    )));
+  });
+});
+
+test('external Codex sessions map native thread ids to app ids with replay sequence', async () => {
+  await withIsolatedDatabase(async () => await withCodexCliFixture(async () => {
+    sessionsDb.createAppSession('codex-cli-app', 'codex', '/tmp/running-project');
+    sessionsDb.assignProviderSessionId('codex-cli-app', CODEX_THREAD_ID);
+    const run = chatRunRegistry.startRun({
+      appSessionId: 'codex-cli-app', provider: 'codex', providerSessionId: CODEX_THREAD_ID,
+      connection: null, userId: null,
+    });
+    assert.ok(run);
+    run.writer.sendComplete({ exitCode: 0 });
+    await withClaudeCliRegistry([], async () => await withProviders({}, async () => {
+      assert.deepEqual(await sessionsService.listRunningSessions(), [{
+        sessionId: 'codex-cli-app', provider: 'codex', startedAt: CODEX_STARTED_AT,
+        lastSeq: run.lastSeq, canInterrupt: false, statusText: 'Running in the Codex CLI',
+      }]);
+    }));
+  }));
+});
+
+test('external Codex detection preserves the CloudCLI run and its tasks', async () => {
+  await withIsolatedDatabase(async () => await withCodexCliFixture(async () => {
+    sessionsDb.createAppSession('codex-owned', 'codex', '/tmp/running-project');
+    sessionsDb.assignProviderSessionId('codex-owned', CODEX_THREAD_ID);
+    const run = chatRunRegistry.startRun({
+      appSessionId: 'codex-owned', provider: 'codex', providerSessionId: CODEX_THREAD_ID,
+      connection: null, userId: null,
+    });
+    assert.ok(run);
+    const tasks = [task('codex-task', 1000)];
+    await withClaudeCliRegistry([], async () => await withProviders({
+      codex: { run: async () => undefined, abort: () => false, listBackgroundWork: () => [{ sessionId: 'codex-owned', tasks }] },
+    }, async () => {
+      assert.deepEqual(await sessionsService.listRunningSessions(), [{
+        sessionId: 'codex-owned', provider: 'codex', startedAt: run.startedAt, lastSeq: run.lastSeq, tasks,
+      }]);
+    }));
+  }));
+});
+
+test('external Codex detection preserves standalone background work without duplicates', async () => {
+  await withIsolatedDatabase(async () => await withCodexCliFixture(async () => {
+    sessionsDb.createAppSession('codex-background', 'codex', '/tmp/running-project');
+    sessionsDb.assignProviderSessionId('codex-background', CODEX_THREAD_ID);
+    const tasks = [task('codex-background-task', 2000)];
+    await withClaudeCliRegistry([], async () => await withProviders({
+      codex: { run: async () => undefined, abort: () => false, listBackgroundWork: () => [{ sessionId: 'codex-background', tasks }] },
+    }, async () => {
+      assert.deepEqual(await sessionsService.listRunningSessions(), [{
+        sessionId: 'codex-background', provider: 'codex', startedAt: 2000, lastSeq: 0,
+        background: true, canInterrupt: false, tasks,
+      }]);
+    }));
+  }));
+});
+
+test('unindexed and completed external Codex sessions leave other provider runs intact', async () => {
+  await withIsolatedDatabase(async () => await withCodexCliFixture(async ({ rolloutPath }) => {
+    await withClaudeCliRegistry([], async () => await withProviders({}, async () => {
+      const run = chatRunRegistry.startRun({
+        appSessionId: 'other-claude', provider: 'claude', providerSessionId: null,
+        connection: null, userId: null,
+      });
+      assert.ok(run);
+      assert.deepEqual((await sessionsService.listRunningSessions()).map((entry) => entry.sessionId), ['other-claude']);
+      sessionsDb.createAppSession('codex-finished', 'codex', '/tmp/running-project');
+      sessionsDb.assignProviderSessionId('codex-finished', CODEX_THREAD_ID);
+      await appendFile(rolloutPath, `${codexLifecycle('task_complete')}\n`);
+      assert.deepEqual((await sessionsService.listRunningSessions()).map((entry) => entry.sessionId), ['other-claude']);
+    }));
+  }));
+});
+
+test('an external Kimi turn does not duplicate a CloudCLI-owned run', { concurrency: false }, async () => {
+  await withIsolatedDatabase(async () => {
+    sessionsDb.createAppSession('kimi-both', 'kimi', '/tmp/running-project');
+    sessionsDb.assignProviderSessionId('kimi-both', KIMI_CLI_SESSION_ID);
+    const run = chatRunRegistry.startRun({
+      appSessionId: 'kimi-both', provider: 'kimi', providerSessionId: KIMI_CLI_SESSION_ID,
+      connection: null, userId: null,
+    });
+    assert.ok(run);
+
+    await withKimiCliSession('agent.turn.started', async () => await withClaudeCliRegistry([], async () => await withProviders(
+      { kimi: { run: async () => undefined, abort: () => false } },
+      async () => {
+        assert.deepEqual(await sessionsService.listRunningSessions(), [{
+          sessionId: 'kimi-both', provider: 'kimi', startedAt: run.startedAt, lastSeq: 0,
+        }]);
+      },
+    )));
+  });
+});
+
+test('a completed external Kimi turn is not listed as running', { concurrency: false }, async () => {
+  await withIsolatedDatabase(async () => {
+    sessionsDb.createAppSession('kimi-idle', 'kimi', '/tmp/running-project');
+    sessionsDb.assignProviderSessionId('kimi-idle', KIMI_CLI_SESSION_ID);
+
+    await withKimiCliSession('agent.turn.ended', async () => await withClaudeCliRegistry([], async () => await withProviders(
+      { kimi: { run: async () => undefined, abort: () => false } },
+      async () => {
+        assert.deepEqual(await sessionsService.listRunningSessions(), []);
+      },
+    )));
   });
 });
 

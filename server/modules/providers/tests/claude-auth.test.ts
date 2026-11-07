@@ -7,10 +7,8 @@ import test from 'node:test';
 import { ClaudeProviderAuth } from '@/modules/providers/list/claude/claude-auth.provider.js';
 import type { ProviderAuthStatus, ProviderAuthSubscriptionOverride } from '@/shared/types.js';
 
-// checkCredentials() is private, but unlike getStatus() it never shells out to the
-// `claude` CLI — it only reads env vars and ~/.claude files. Calling it directly
-// (TypeScript's `private` has no runtime effect) tests the priority order without
-// depending on `claude` being installed in the test environment.
+// Test credentials independently of CLI installation. Inject a Keychain reader
+// so temporary-home fixtures never access the real macOS login Keychain.
 type CheckCredentialsResult = {
   authenticated: boolean;
   email: string | null;
@@ -19,17 +17,20 @@ type CheckCredentialsResult = {
   subscriptionOverride?: ProviderAuthSubscriptionOverride;
 };
 
+/** Exercises credential priority without invoking the installed CLI. */
 const checkCredentials = (auth: ClaudeProviderAuth): Promise<CheckCredentialsResult> =>
   (auth as unknown as { checkCredentials: () => Promise<CheckCredentialsResult> }).checkCredentials();
 
 // getStatus() is the public API the route serves, but it first shells out to
 // `claude --version`. Stubbing checkInstalled() lets the test cover the mapping
 // from checkCredentials() to the wire shape without the CLI.
+/** Checks the public response while isolating CLI installation probing. */
 const getStatusWithCliInstalled = (auth: ClaudeProviderAuth): Promise<ProviderAuthStatus> => {
   auth.checkInstalled = () => ({ installed: true, exitCode: 0, version: '2.1.0' });
   return auth.getStatus();
 };
 
+/** Creates a usable subscription fixture with an optional account label. */
 const validSubscriptionCredentials = (email?: string) => ({
   claudeAiOauth: {
     accessToken: 'valid-token',
@@ -39,8 +40,9 @@ const validSubscriptionCredentials = (email?: string) => ({
   ...(email ? { email } : {}),
 });
 
-const ENV_KEYS = ['CLAUDE_CODE_OAUTH_TOKEN', 'ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN'] as const;
+const ENV_KEYS = ['CLAUDE_CODE_OAUTH_TOKEN', 'ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'CLAUDE_CONFIG_DIR'] as const;
 
+/** Isolates credential environment variables and restores them after every fixture. */
 const withEnv = async (
   overrides: Partial<Record<(typeof ENV_KEYS)[number], string>>,
   fn: () => Promise<void>,
@@ -68,6 +70,7 @@ const withEnv = async (
   }
 };
 
+/** Isolates file-backed credentials and removes only the temporary test directory. */
 const withTempHome = async (fn: (homeDir: string) => Promise<void>) => {
   const homeDir = await mkdtemp(path.join(os.tmpdir(), 'claude-auth-test-'));
   const originalHome = process.env.HOME;
@@ -84,12 +87,14 @@ const withTempHome = async (fn: (homeDir: string) => Promise<void>) => {
   }
 };
 
+/** Writes a credential fixture into the isolated default configuration directory. */
 const writeCredentialsFile = async (homeDir: string, body: unknown) => {
   const claudeDir = path.join(homeDir, '.claude');
   await mkdir(claudeDir, { recursive: true });
   await writeFile(path.join(claudeDir, '.credentials.json'), JSON.stringify(body));
 };
 
+/** Writes CLI settings without touching the real user configuration. */
 const writeSettingsFile = async (homeDir: string, env: Record<string, string>) => {
   const claudeDir = path.join(homeDir, '.claude');
   await mkdir(claudeDir, { recursive: true });
@@ -103,7 +108,7 @@ test('checkCredentials: CLAUDE_CODE_OAUTH_TOKEN set is authenticated via environ
     });
 
     await withEnv({ CLAUDE_CODE_OAUTH_TOKEN: 'test-oauth-token' }, async () => {
-      const status = await checkCredentials(new ClaudeProviderAuth());
+      const status = await checkCredentials(new ClaudeProviderAuth(async () => null));
       assert.equal(status.authenticated, true);
       assert.equal(status.method, 'environment');
     });
@@ -118,7 +123,7 @@ test('checkCredentials: CLAUDE_CODE_OAUTH_TOKEN configured via settings.json env
     });
 
     await withEnv({}, async () => {
-      const status = await checkCredentials(new ClaudeProviderAuth());
+      const status = await checkCredentials(new ClaudeProviderAuth(async () => null));
       assert.equal(status.authenticated, true);
       assert.equal(status.method, 'environment');
     });
@@ -133,7 +138,7 @@ test('checkCredentials: no CLAUDE_CODE_OAUTH_TOKEN, valid credentials file falls
     });
 
     await withEnv({}, async () => {
-      const status = await checkCredentials(new ClaudeProviderAuth());
+      const status = await checkCredentials(new ClaudeProviderAuth(async () => null));
       assert.equal(status.authenticated, true);
       assert.equal(status.method, 'credentials_file');
       assert.equal(status.email, 'someone@example.com');
@@ -148,7 +153,7 @@ test('checkCredentials: no CLAUDE_CODE_OAUTH_TOKEN, expired credentials file rep
     });
 
     await withEnv({}, async () => {
-      const status = await checkCredentials(new ClaudeProviderAuth());
+      const status = await checkCredentials(new ClaudeProviderAuth(async () => null));
       assert.equal(status.authenticated, false);
       assert.match(status.error ?? '', /expired/i);
     });
@@ -168,7 +173,7 @@ test('checkCredentials: expired access token with a live refresh token is still 
     });
 
     await withEnv({}, async () => {
-      const status = await checkCredentials(new ClaudeProviderAuth());
+      const status = await checkCredentials(new ClaudeProviderAuth(async () => null));
       assert.equal(status.authenticated, true);
       assert.equal(status.method, 'credentials_file');
       assert.equal(status.email, 'someone@example.com');
@@ -187,7 +192,7 @@ test('checkCredentials: expired access token with a refresh token that has no re
     });
 
     await withEnv({}, async () => {
-      const status = await checkCredentials(new ClaudeProviderAuth());
+      const status = await checkCredentials(new ClaudeProviderAuth(async () => null));
       assert.equal(status.authenticated, true);
       assert.equal(status.method, 'credentials_file');
     });
@@ -206,7 +211,7 @@ test('checkCredentials: expired access token with an expired refresh token repor
     });
 
     await withEnv({}, async () => {
-      const status = await checkCredentials(new ClaudeProviderAuth());
+      const status = await checkCredentials(new ClaudeProviderAuth(async () => null));
       assert.equal(status.authenticated, false);
       assert.match(status.error ?? '', /expired/i);
     });
@@ -218,7 +223,7 @@ test('checkCredentials: ANTHROPIC_API_KEY takes precedence over CLAUDE_CODE_OAUT
     await withEnv(
       { ANTHROPIC_API_KEY: 'test-api-key', CLAUDE_CODE_OAUTH_TOKEN: 'test-oauth-token' },
       async () => {
-        const status = await checkCredentials(new ClaudeProviderAuth());
+        const status = await checkCredentials(new ClaudeProviderAuth(async () => null));
         assert.equal(status.authenticated, true);
         assert.equal(status.method, 'api_key');
       },
@@ -235,7 +240,7 @@ test('checkCredentials: ANTHROPIC_API_KEY in the process env alongside a valid s
     await writeCredentialsFile(homeDir, validSubscriptionCredentials('someone@example.com'));
 
     await withEnv({ ANTHROPIC_API_KEY: 'test-api-key' }, async () => {
-      const status = await checkCredentials(new ClaudeProviderAuth());
+      const status = await checkCredentials(new ClaudeProviderAuth(async () => null));
       // The existing fields are untouched: the key still wins and keeps its label.
       assert.equal(status.authenticated, true);
       assert.equal(status.method, 'api_key');
@@ -254,7 +259,7 @@ test('checkCredentials: ANTHROPIC_AUTH_TOKEN in the process env alongside a vali
     await writeCredentialsFile(homeDir, validSubscriptionCredentials());
 
     await withEnv({ ANTHROPIC_AUTH_TOKEN: 'test-auth-token', ANTHROPIC_API_KEY: 'test-api-key' }, async () => {
-      const status = await checkCredentials(new ClaudeProviderAuth());
+      const status = await checkCredentials(new ClaudeProviderAuth(async () => null));
       assert.equal(status.method, 'api_key');
       assert.equal(status.email, 'Auth Token');
       assert.deepEqual(status.subscriptionOverride, {
@@ -272,7 +277,7 @@ test('checkCredentials: ANTHROPIC_API_KEY in settings.json env alongside a valid
     await writeCredentialsFile(homeDir, validSubscriptionCredentials('someone@example.com'));
 
     await withEnv({}, async () => {
-      const status = await checkCredentials(new ClaudeProviderAuth());
+      const status = await checkCredentials(new ClaudeProviderAuth(async () => null));
       assert.equal(status.method, 'api_key');
       assert.equal(status.email, 'API Key Auth');
       assert.deepEqual(status.subscriptionOverride, {
@@ -287,7 +292,7 @@ test('checkCredentials: ANTHROPIC_API_KEY in settings.json env alongside a valid
 test('checkCredentials: ANTHROPIC_API_KEY with no credentials file reports no override', async () => {
   await withTempHome(async () => {
     await withEnv({ ANTHROPIC_API_KEY: 'test-api-key' }, async () => {
-      const status = await checkCredentials(new ClaudeProviderAuth());
+      const status = await checkCredentials(new ClaudeProviderAuth(async () => null));
       assert.equal(status.authenticated, true);
       assert.equal(status.method, 'api_key');
       assert.equal(status.subscriptionOverride, undefined);
@@ -308,7 +313,7 @@ test('checkCredentials: ANTHROPIC_API_KEY with an expired subscription login rep
     });
 
     await withEnv({ ANTHROPIC_API_KEY: 'test-api-key' }, async () => {
-      const status = await checkCredentials(new ClaudeProviderAuth());
+      const status = await checkCredentials(new ClaudeProviderAuth(async () => null));
       assert.equal(status.authenticated, true);
       assert.equal(status.method, 'api_key');
       assert.equal(status.subscriptionOverride, undefined);
@@ -321,7 +326,7 @@ test('checkCredentials: a valid subscription login with no API key reports crede
     await writeCredentialsFile(homeDir, validSubscriptionCredentials('someone@example.com'));
 
     await withEnv({}, async () => {
-      const status = await checkCredentials(new ClaudeProviderAuth());
+      const status = await checkCredentials(new ClaudeProviderAuth(async () => null));
       assert.equal(status.authenticated, true);
       assert.equal(status.method, 'credentials_file');
       assert.equal(status.email, 'someone@example.com');
@@ -335,7 +340,7 @@ test('getStatus: passes the subscription override through to the wire shape, and
     await writeCredentialsFile(homeDir, validSubscriptionCredentials('someone@example.com'));
 
     await withEnv({ ANTHROPIC_API_KEY: 'test-api-key' }, async () => {
-      const status = await getStatusWithCliInstalled(new ClaudeProviderAuth());
+      const status = await getStatusWithCliInstalled(new ClaudeProviderAuth(async () => null));
       assert.equal(status.installed, true);
       assert.equal(status.provider, 'claude');
       assert.equal(status.authenticated, true);
@@ -349,10 +354,119 @@ test('getStatus: passes the subscription override through to the wire shape, and
     });
 
     await withEnv({}, async () => {
-      const status = await getStatusWithCliInstalled(new ClaudeProviderAuth());
+      const status = await getStatusWithCliInstalled(new ClaudeProviderAuth(async () => null));
       assert.equal(status.method, 'credentials_file');
       // Omitted, not null: existing JSON consumers see exactly the old payload.
       assert.equal('subscriptionOverride' in status, false);
+    });
+  });
+});
+
+
+test('getStatus: missing credentials file uses the macOS Keychain login', async () => {
+  await withTempHome(async () => {
+    await withEnv({}, async () => {
+      const auth = new ClaudeProviderAuth(async () => JSON.stringify(validSubscriptionCredentials('keychain@example.com')));
+      const status = await getStatusWithCliInstalled(auth);
+      assert.equal(status.authenticated, true);
+      assert.equal(status.method, 'keychain');
+      assert.equal(status.email, 'keychain@example.com');
+      assert.equal(status.error, undefined);
+    });
+  });
+});
+
+test('checkCredentials: expired or malformed credentials files fall back to a usable Keychain login', async () => {
+  await withTempHome(async (homeDir) => {
+    await withEnv({}, async () => {
+      const auth = new ClaudeProviderAuth(async () => JSON.stringify(validSubscriptionCredentials()));
+      await writeCredentialsFile(homeDir, { claudeAiOauth: { accessToken: 'expired', expiresAt: 1 } });
+      assert.equal((await checkCredentials(auth)).method, 'keychain');
+      await writeFile(path.join(homeDir, '.claude', '.credentials.json'), '{broken');
+      assert.equal((await checkCredentials(auth)).method, 'keychain');
+    });
+  });
+});
+
+test('checkCredentials: Keychain refreshable login remains authenticated without refreshing tokens', async () => {
+  await withTempHome(async () => {
+    await withEnv({}, async () => {
+      const auth = new ClaudeProviderAuth(async () => JSON.stringify({
+        claudeAiOauth: { accessToken: 'expired', expiresAt: 1, refreshToken: 'refresh' },
+      }));
+      assert.equal((await checkCredentials(auth)).authenticated, true);
+    });
+  });
+});
+
+test('checkCredentials: unusable Keychain credentials never authenticate or expose secrets', async () => {
+  await withTempHome(async () => {
+    await withEnv({}, async () => {
+      for (const content of ['{secret-invalid-json', '{}', JSON.stringify({ claudeAiOauth: {
+        accessToken: 'secret-expired', expiresAt: 1, refreshToken: 'secret-refresh', refreshTokenExpiresAt: 1,
+      } })]) {
+        const status = await checkCredentials(new ClaudeProviderAuth(async () => content));
+        assert.equal(status.authenticated, false);
+        assert.doesNotMatch(JSON.stringify(status), /secret/);
+      }
+      const status = await checkCredentials(new ClaudeProviderAuth(async () => { throw new Error('secret-tool-output'); }));
+      assert.equal(status.authenticated, false);
+      assert.doesNotMatch(JSON.stringify(status), /secret/);
+    });
+  });
+});
+
+test('checkCredentials: usable file takes priority without reading Keychain', async () => {
+  await withTempHome(async (homeDir) => {
+    await withEnv({}, async () => {
+      await writeCredentialsFile(homeDir, validSubscriptionCredentials('file@example.com'));
+      let reads = 0;
+      const auth = new ClaudeProviderAuth(async () => { reads += 1; return null; });
+      assert.equal((await checkCredentials(auth)).method, 'credentials_file');
+      assert.equal(reads, 0);
+    });
+  });
+});
+
+test('checkCredentials: API key still wins and reports bypassed Keychain subscription', async () => {
+  await withTempHome(async () => {
+    await withEnv({ ANTHROPIC_API_KEY: 'api-key' }, async () => {
+      const auth = new ClaudeProviderAuth(async () => JSON.stringify(validSubscriptionCredentials('keychain@example.com')));
+      const status = await checkCredentials(auth);
+      assert.equal(status.method, 'api_key');
+      assert.deepEqual(status.subscriptionOverride, {
+        variable: 'ANTHROPIC_API_KEY', source: 'process_env', subscriptionEmail: 'keychain@example.com',
+      });
+    });
+  });
+});
+
+test('checkCredentials: custom config directory does not use another account from the default Keychain', async () => {
+  await withTempHome(async (homeDir) => {
+    const configDir = path.join(homeDir, 'isolated-claude');
+    await mkdir(configDir);
+    await withEnv({ CLAUDE_CONFIG_DIR: configDir }, async () => {
+      let reads = 0;
+      const auth = new ClaudeProviderAuth(async () => { reads += 1; return JSON.stringify(validSubscriptionCredentials()); });
+      assert.equal((await checkCredentials(auth)).authenticated, false);
+      assert.equal(reads, 0);
+      await writeFile(path.join(configDir, '.credentials.json'), JSON.stringify(validSubscriptionCredentials('custom@example.com')));
+      assert.equal((await checkCredentials(auth)).email, 'custom@example.com');
+    });
+  });
+});
+
+
+test('checkCredentials: custom settings ignore default API keys and read only the selected configuration', async () => {
+  await withTempHome(async (homeDir) => {
+    await writeSettingsFile(homeDir, { ANTHROPIC_API_KEY: 'default-account-key' });
+    const configDir = path.join(homeDir, 'custom-config');
+    await mkdir(configDir);
+    await withEnv({ CLAUDE_CONFIG_DIR: configDir }, async () => {
+      const auth = new ClaudeProviderAuth(async () => null);
+      assert.equal((await checkCredentials(auth)).authenticated, false);
+      await writeFile(path.join(configDir, 'settings.json'), JSON.stringify({ env: { ANTHROPIC_API_KEY: 'custom-account-key' } }));
+      assert.equal((await checkCredentials(auth)).method, 'api_key');
     });
   });
 });

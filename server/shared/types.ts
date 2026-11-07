@@ -79,6 +79,10 @@ export type ProviderModelOption = {
   recordId?: number;
   /** True for user-created rows; false for immutable CloudCLI defaults. */
   isCustom?: boolean;
+  /** Per-model gateway URL; absent when the model inherits the host environment. */
+  baseUrl?: string;
+  /** Whether a token is stored for `baseUrl`; the token itself is never returned. */
+  hasApiKey?: boolean;
   effort?: {
     default?: string;
     values: {
@@ -127,6 +131,15 @@ export type CustomProviderModelRecord = {
   sortOrder: number;
   /** NULL for rows that never declared effort levels, including pre-existing rows. */
   effort: CustomProviderModelEffort | null;
+  /**
+   * Optional per-model gateway URL. When set, the Claude runtime sends this
+   * model to that base URL instead of the host environment's
+   * `ANTHROPIC_BASE_URL`, so one catalog can mix a local model server with the
+   * official API. NULL inherits the host environment.
+   */
+  baseUrl: string | null;
+  /** Optional token for `baseUrl`; NULL inherits the host environment's credentials. */
+  apiKey: string | null;
 };
 
 /**
@@ -159,6 +172,13 @@ export type CustomProviderModelInput = {
    * effort metadata keep working; `null` clears it.
    */
   effort?: CustomProviderModelEffort | null;
+  /**
+   * Optional per-model gateway URL and token. `undefined` keeps the stored
+   * endpoint on update (and inherits the host environment on create); `null`
+   * clears it; a string replaces it.
+   */
+  baseUrl?: string | null;
+  apiKey?: string | null;
 };
 
 // ---------------------------
@@ -644,6 +664,12 @@ export type ProviderRuntimeContext = {
     requestedModel?: string | null,
   ): Promise<string | undefined>;
   getProviderModels(): Promise<ProviderModelsDefinition>;
+  /**
+   * Endpoint override stored on one custom model, or null to inherit the host
+   * environment. Optional so runtimes and tests that never route a model to a
+   * gateway can omit it; the Claude runtime uses it per turn.
+   */
+  getCustomModelEndpoint?(modelId: string): { baseUrl: string; apiKey: string | null } | null;
   normalizeMessage(raw: unknown, sessionId: string | null): NormalizedMessage[];
   isProviderInstalled(): Promise<boolean>;
   /**

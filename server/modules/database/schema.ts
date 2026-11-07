@@ -191,6 +191,8 @@ CREATE TABLE IF NOT EXISTS provider_models (
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     effort_values TEXT DEFAULT NULL,
     effort_default TEXT DEFAULT NULL,
+    base_url TEXT DEFAULT NULL,
+    api_key TEXT DEFAULT NULL,
     UNIQUE(provider, model_id)
 );
 `;

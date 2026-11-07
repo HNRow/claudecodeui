@@ -18,6 +18,7 @@ import {
   sliceTailPage,
 } from '@/shared/utils.js';
 import { KimiAcpClient, toKimiAcpError } from '@/modules/providers/list/kimi/kimi-acp.client.js';
+import { loadKimiWireHistory } from '@/modules/providers/list/kimi/kimi-wire-history.js';
 
 const PROVIDER = 'kimi' as const;
 /** A history replay is a full read; it may take longer than one RPC. */
@@ -32,6 +33,11 @@ export type KimiUpdateEnvelope = {
   sequence?: number;
 };
 
+type KimiSessionsProviderOptions = {
+  loadAcpHistory?: typeof loadKimiHistory;
+  loadWireHistory?: typeof loadKimiWireHistory;
+};
+
 /**
  * Session/history adapter for Kimi's ACP sessions.
  *
@@ -40,6 +46,18 @@ export type KimiUpdateEnvelope = {
  * over the websocket or was replayed by `session/load`.
  */
 export class KimiSessionsProvider implements IProviderSessions {
+  private readonly loadAcpHistory: typeof loadKimiHistory;
+  private readonly loadWireHistory: typeof loadKimiWireHistory;
+
+  /** Allows focused tests to substitute history transports without spawning Kimi. */
+  constructor({
+    loadAcpHistory = loadKimiHistory,
+    loadWireHistory = loadKimiWireHistory,
+  }: KimiSessionsProviderOptions = {}) {
+    this.loadAcpHistory = loadAcpHistory;
+    this.loadWireHistory = loadWireHistory;
+  }
+
   normalizeMessage(raw: unknown, sessionId: string | null): NormalizedMessage[] {
     const record = readObjectRecord(raw);
     if (!record) {
@@ -56,13 +74,7 @@ export class KimiSessionsProvider implements IProviderSessions {
     });
   }
 
-  /**
-   * Reads one session's history through a short ACP `session/load` replay.
-   *
-   * The private `wire.jsonl` format is deliberately not parsed: ACP is the
-   * stable contract, and replaying it also means tool calls and plans arrive in
-   * the same shape the live chat consumed.
-   */
+  /** Replays history through ACP, falling back to the persisted main-agent wire log. */
   async fetchHistory(sessionId: string, options: FetchHistoryOptions = {}): Promise<FetchHistoryResult> {
     const providerSessionId = options.providerSessionId ?? sessionId;
     const limit = options.limit === undefined ? null : options.limit;
@@ -74,12 +86,18 @@ export class KimiSessionsProvider implements IProviderSessions {
 
     let messages: NormalizedMessage[];
     try {
-      messages = await loadKimiHistory(providerSessionId, options.projectPath);
-    } catch (error) {
-      // A session Kimi no longer knows (or a machine without the CLI) reads as
-      // empty history instead of failing the whole chat route.
-      console.warn('[Kimi] Failed to read session history:', formatKimiError(error));
-      messages = [];
+      messages = await this.loadAcpHistory(providerSessionId, options.projectPath);
+    } catch (acpError) {
+      console.warn('[Kimi] ACP history failed; trying wire fallback:', formatKimiError(acpError));
+      try {
+        messages = await this.loadWireHistory(providerSessionId);
+      } catch (fallbackError) {
+        console.warn('[Kimi] Wire history fallback failed:', formatKimiError(fallbackError));
+        throw acpError;
+      }
+      if (messages.length === 0) {
+        throw acpError;
+      }
     }
 
     const total = messages.length;

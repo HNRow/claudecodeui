@@ -1,8 +1,8 @@
 import { memo, useEffect, useRef } from 'react';
-import { Check, ChevronDown, ChevronRight, Edit3, Star, Trash2, X } from 'lucide-react';
+import { Check, ChevronDown, ChevronRight, Edit3, Plus, Star, Trash2, X } from 'lucide-react';
 import type { TFunction } from 'i18next';
 
-import { Button } from '@/shared/ui';
+import { buttonVariants } from '@/shared/ui';
 import { cn } from '@/shared/utils';
 import type { LLMProvider, MCPServerStatus, Project, ProjectSession, SessionWithProvider, SidebarSessionSelection } from '@/shared/types';
 import { getTaskIndicatorStatus } from '@/modules/sidebar/utils/sidebarProjectFormatting';
@@ -62,7 +62,7 @@ const getSessionCountDisplay = (project: Project, sessions: SessionWithProvider[
   return String(total);
 };
 
-/** Rendered by SidebarProjectList for one project row, including its expand, rename, star and delete controls. */
+/** Rendered by SidebarProjectList with project controls and session creation in the header. */
 function SidebarProjectItem({
   project,
   selectedProject,
@@ -152,6 +152,12 @@ function SidebarProjectItem({
     }
 
     toggleProject();
+  };
+
+  /** Preserves touch-layout project selection when creating a session from the expanded action row. */
+  const createSession = () => {
+    if (isCompact) onProjectSelect(project);
+    onNewSession(project);
   };
 
   return (
@@ -265,25 +271,42 @@ function SidebarProjectItem({
                   </>
                 ) : (
                   <>
-                    <button
-                      className="flex h-8 w-8 items-center justify-center rounded-lg border border-red-200 bg-red-500/10 active:scale-90 dark:border-red-800 dark:bg-red-900/30"
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        onDeleteProject(project);
-                      }}
-                    >
-                      <Trash2 className="h-4 w-4 text-red-600 dark:text-red-400" />
-                    </button>
-
-                    <button
-                      className="flex h-8 w-8 items-center justify-center rounded-lg border border-primary/20 bg-primary/10 active:scale-90 dark:border-primary/30 dark:bg-primary/20"
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        onStartEditingProject(project);
-                      }}
-                    >
-                      <Edit3 className="h-4 w-4 text-primary" />
-                    </button>
+                    {isExpanded && (
+                      <>
+                        <button
+                          type="button"
+                          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-primary/20 bg-primary/10 text-primary active:scale-90 dark:border-primary/30 dark:bg-primary/20"
+                          title={t('sessions.newSession')}
+                          aria-label={t('sessions.newSession')}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            createSession();
+                          }}
+                        >
+                          <Plus className="h-4 w-4" aria-hidden="true" />
+                        </button>
+                        <button
+                          title={t('tooltips.deleteProject')}
+                          className="flex h-8 w-8 items-center justify-center rounded-lg border border-red-200 bg-red-500/10 active:scale-90 dark:border-red-800 dark:bg-red-900/30"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            onDeleteProject(project);
+                          }}
+                        >
+                          <Trash2 className="h-4 w-4 text-red-600 dark:text-red-400" />
+                        </button>
+                        <button
+                          title={t('tooltips.renameProject')}
+                          className="flex h-8 w-8 items-center justify-center rounded-lg border border-primary/20 bg-primary/10 active:scale-90 dark:border-primary/30 dark:bg-primary/20"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            onStartEditingProject(project);
+                          }}
+                        >
+                          <Edit3 className="h-4 w-4 text-primary" />
+                        </button>
+                      </>
+                    )}
 
                     <div className="flex h-6 w-6 items-center justify-center rounded-md bg-muted/30">
                       {isExpanded ? (
@@ -301,9 +324,11 @@ function SidebarProjectItem({
         )}
 
         {!isCompact && (
-        <Button
-          variant="ghost"
+        <div
+          role="button"
+          tabIndex={0}
           className={cn(
+            buttonVariants({ variant: 'ghost' }),
             'sticky top-0 z-10 flex w-full justify-between p-2 h-auto font-normal hover:bg-accent/50',
             isSelected
               ? 'bg-accent text-accent-foreground'
@@ -315,6 +340,12 @@ function SidebarProjectItem({
               'bg-yellow-50/50 dark:bg-yellow-900/10 hover:bg-yellow-100/50 dark:hover:bg-yellow-900/20',
           )}
           onClick={selectAndToggleProject}
+          onKeyDown={(event) => {
+            if (event.target === event.currentTarget && (event.key === 'Enter' || event.key === ' ')) {
+              event.preventDefault();
+              selectAndToggleProject();
+            }
+          }}
         >
           <div className="flex min-w-0 flex-1 items-center gap-3">
             <div
@@ -407,26 +438,42 @@ function SidebarProjectItem({
               </>
             ) : (
               <>
-                <div
-                  className="touch:opacity-100 flex h-6 w-6 cursor-pointer items-center justify-center rounded opacity-0 transition-all duration-200 hover:bg-accent group-hover:opacity-100"
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    onStartEditingProject(project);
-                  }}
-                  title={t('tooltips.renameProject')}
-                >
-                  <Edit3 className="h-3 w-3" />
-                </div>
-                <div
-                  className="touch:opacity-100 flex h-6 w-6 cursor-pointer items-center justify-center rounded opacity-0 transition-all duration-200 hover:bg-red-50 group-hover:opacity-100 dark:hover:bg-red-900/20"
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    onDeleteProject(project);
-                  }}
-                  title={t('tooltips.deleteProject')}
-                >
-                  <Trash2 className="h-3 w-3 text-red-600 dark:text-red-400" />
-                </div>
+                {isExpanded && (
+                  <>
+                    <button
+                      type="button"
+                      className="flex h-6 w-6 shrink-0 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                      title={t('sessions.newSession')}
+                      aria-label={t('sessions.newSession')}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        createSession();
+                      }}
+                    >
+                      <Plus className="h-3 w-3" aria-hidden="true" />
+                    </button>
+                    <div
+                      className="flex h-6 w-6 cursor-pointer items-center justify-center rounded transition-all duration-200 hover:bg-accent"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        onStartEditingProject(project);
+                      }}
+                      title={t('tooltips.renameProject')}
+                    >
+                      <Edit3 className="h-3 w-3" />
+                    </div>
+                    <div
+                      className="flex h-6 w-6 cursor-pointer items-center justify-center rounded transition-all duration-200 hover:bg-red-50 dark:hover:bg-red-900/20"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        onDeleteProject(project);
+                      }}
+                      title={t('tooltips.deleteProject')}
+                    >
+                      <Trash2 className="h-3 w-3 text-red-600 dark:text-red-400" />
+                    </div>
+                  </>
+                )}
                 {isExpanded ? (
                   <ChevronDown className="h-4 w-4 text-muted-foreground transition-colors group-hover:text-foreground" />
                 ) : (
@@ -435,7 +482,7 @@ function SidebarProjectItem({
               </>
             )}
           </div>
-        </Button>
+        </div>
         )}
       </div>
 
@@ -462,7 +509,6 @@ function SidebarProjectItem({
         onDeleteSession={onDeleteSession}
         onForkSession={onForkSession}
         onLoadMoreSessions={onLoadMoreSessions}
-        onNewSession={onNewSession}
         selectedSessionIds={selectedSessionIds}
         onSetSessionSelection={onSetSessionSelection}
         onToggleSessionSelected={onToggleSessionSelected}

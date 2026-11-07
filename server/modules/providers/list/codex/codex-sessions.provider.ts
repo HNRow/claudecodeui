@@ -1,5 +1,6 @@
 import fsSync from 'node:fs';
 import fsp from 'node:fs/promises';
+import os from 'node:os';
 import path from 'node:path';
 import readline from 'node:readline';
 
@@ -156,8 +157,8 @@ async function readCodexLiveTurnIds(filePath: string): Promise<string[]> {
   return turns.getLiveTurnIds();
 }
 
-/** Resolve reference-backed history without requiring the source to remain indexed. */
-async function findCodexHistorySource(filePath: string, threadId: string): Promise<string | null> {
+/** Used by Codex history and CLI liveness to resolve an indexed rollout before searching its home. */
+export async function findCodexHistorySource(filePath: string | null, threadId: string): Promise<string | null> {
   const indexed = sessionsDb.getSessionByProviderSessionId(threadId);
   if (indexed?.provider === PROVIDER && indexed.jsonl_path) {
     try {
@@ -169,7 +170,9 @@ async function findCodexHistorySource(filePath: string, threadId: string): Promi
     }
   }
 
-  let directory = path.dirname(filePath);
+  let directory = filePath
+    ? path.dirname(filePath)
+    : path.join(path.resolve(process.env.CODEX_HOME || path.join(os.homedir(), '.codex')), 'sessions');
   while (path.dirname(directory) !== directory) {
     if (path.basename(directory) === 'sessions' || path.basename(directory) === 'archived_sessions') {
       const home = path.dirname(directory);

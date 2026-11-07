@@ -22,6 +22,7 @@ import {
   createNormalizedMessage,
 } from '@/shared/index.js';
 import { notifyRunFailed, notifyRunStopped } from '@/modules/notifications/index.js';
+import { hasCodexCliWriter } from '@/modules/providers/services/codex-cli-liveness.service.js';
 import type { AnyRecord, ProviderRuntimeContext, ProviderRuntimeWriter } from '@/shared/index.js';
 
 type ActiveCodexSession = {
@@ -37,6 +38,12 @@ const activeCodexSessions = new Map<string, ActiveCodexSession>();
 // Codex CLI requires non-whitespace stdin even when --image arguments are
 // present, so attachment-only turns need a small text instruction.
 const CODEX_IMAGE_ONLY_PROMPT = 'Please analyze the attached image(s).';
+const CODEX_WRITER_CONFLICT_MESSAGE = 'This session is held by another Codex client. Continue in that client, or close its session to release the writer before retrying here. You can also fork this conversation to continue independently. No commands were executed by this request.';
+
+/** Recognizes the exclusive-writer failure without masking unrelated exec, authentication or network errors. */
+function isCodexWriterConflict(message: string): boolean {
+  return /(?:thread-store conflict|thread\/resume)[\s\S]*already has an active writer/i.test(message);
+}
 
 /**
  * Item types whose in-flight updates are worth showing. These are the ones a
@@ -308,6 +315,11 @@ async function queryCodex(
   const sessionKey = () => sessionId || capturedSessionId || null;
 
   try {
+    // Completed threads can still be loaded in an external daemon: idle does
+    // not imply resumable from a separate exec process. Never delete its lock.
+    if (providerSessionId && await hasCodexCliWriter(providerSessionId)) {
+      throw new Error(CODEX_WRITER_CONFLICT_MESSAGE);
+    }
     codex = new Codex();
 
     const threadOptions: ThreadOptions = {
@@ -458,7 +470,8 @@ async function queryCodex(
     const session = activeCodexSessions.get(sessionKey() || '');
     const runError = error instanceof Error ? error : new Error(String(error));
     const wasAborted =
-      session?.status === 'aborted' ||
+      (session?.abortController === abortController && session.status === 'aborted') ||
+      abortController.signal.aborted ||
       runError.name === 'AbortError' ||
       runError.message.toLowerCase().includes('aborted');
 
@@ -470,7 +483,7 @@ async function queryCodex(
         const installed = await context.isProviderInstalled();
         const errorContent = !installed
           ? 'Codex CLI is not configured. Please set up authentication first.'
-          : runError.message;
+          : isCodexWriterConflict(runError.message) ? CODEX_WRITER_CONFLICT_MESSAGE : runError.message;
 
         sendMessage(ws, createNormalizedMessage({ kind: 'error', content: errorContent, sessionId: capturedSessionId || sessionId || null, provider: 'codex' }));
       }
@@ -491,10 +504,11 @@ async function queryCodex(
     }
 
   } finally {
-    // Update session status
+    // A preflight failure has no registered run; never change a retained
+    // previous run (or a newer run) that happens to have the same app id.
     if (sessionKey()) {
       const session = activeCodexSessions.get(sessionKey() || '');
-      if (session) {
+      if (session?.abortController === abortController) {
         session.status = session.status === 'aborted' ? 'aborted' : 'completed';
       }
     }

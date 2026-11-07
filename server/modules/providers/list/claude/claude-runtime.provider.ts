@@ -288,23 +288,48 @@ function matchesToolPermission(entry: string, toolName: string, input: unknown) 
  * Default it on; a host value (e.g. CLAUDE_CODE_ARTIFACT=0) still wins.
  *
  * @param {NodeJS.ProcessEnv} [hostEnv] - Environment to forward, `process.env` by default
+ * @param {Object|null} [endpoint] - Per-model gateway override; null inherits `hostEnv`
  * @returns {NodeJS.ProcessEnv} Environment for the spawned CLI
  */
-export function buildClaudeSdkEnv(hostEnv: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
-  return {
+export function buildClaudeSdkEnv(
+  hostEnv: NodeJS.ProcessEnv = process.env,
+  endpoint: { baseUrl: string; apiKey: string | null } | null = null,
+): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = {
     CLAUDE_CODE_ARTIFACT: '1',
     CLAUDE_CODE_ENTRYPOINT: 'claudecodeui',
     ...hostEnv,
     CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS: String(BG_WAIT_CEILING_MS),
   };
+
+  if (!endpoint) {
+    return env;
+  }
+
+  // A custom model pointed at its own gateway must not keep the host's default
+  // model aliases: those would resolve `opus`-style ids back to the host
+  // provider and the custom id would never reach the gateway.
+  env.ANTHROPIC_BASE_URL = endpoint.baseUrl;
+  delete env.ANTHROPIC_MODEL;
+  for (const key of Object.keys(env)) {
+    if (/^ANTHROPIC_DEFAULT_[A-Z0-9_]+_MODEL$/.test(key)) {
+      delete env[key];
+    }
+  }
+  if (endpoint.apiKey) {
+    env.ANTHROPIC_AUTH_TOKEN = endpoint.apiKey;
+    delete env.ANTHROPIC_API_KEY;
+  }
+
+  return env;
 }
 
 function mapCliOptionsToSDK(options: AnyRecord = {}) {
-  const { providerSessionId, cwd, toolsSettings, permissionMode, effort, resumeAnchorId, resumeFromScratch } = options;
+  const { providerSessionId, cwd, toolsSettings, permissionMode, effort, resumeAnchorId, resumeFromScratch, endpoint } = options;
 
   const sdkOptions: AnyRecord = {};
 
-  sdkOptions.env = buildClaudeSdkEnv();
+  sdkOptions.env = buildClaudeSdkEnv(process.env, endpoint ?? null);
 
   // Resolve the executable eagerly on Windows because the SDK uses raw child_process.spawn,
   // which does not reliably follow npm's shell wrappers like cross-spawn does.
@@ -1100,11 +1125,18 @@ async function queryClaudeSDK(
       console.warn('[Claude SDK] Unable to load provider models for effort validation:', error);
     }
 
+    // Per-model gateway: a custom model may carry its own base URL and token,
+    // so a local vLLM model and the official API can coexist in one catalog.
+    const endpoint = resolvedModel || options.model
+      ? context.getCustomModelEndpoint?.(resolvedModel || options.model) ?? null
+      : null;
+
     const sdkOptions = mapCliOptionsToSDK({
       ...options,
       providerSessionId,
       model: resolvedModel || options.model,
       effortModels,
+      endpoint,
     });
 
     const mcpServers = await loadMcpConfig(options.cwd);

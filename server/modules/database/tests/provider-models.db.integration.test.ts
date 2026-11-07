@@ -39,6 +39,8 @@ test('provider model repository stores custom rows only and maintains session re
       'updated_at',
       'effort_values',
       'effort_default',
+      'base_url',
+      'api_key',
     ]);
     assert.deepEqual(providerModelsDb.listCustomProviderModels('codex'), []);
 
@@ -217,11 +219,17 @@ test('migrations add effort columns to an existing provider model table and keep
     const columnNames = (getConnection().prepare('PRAGMA table_info(provider_models)').all() as Array<{
       name: string;
     }>).map((column) => column.name);
-    assert.deepEqual(columnNames.slice(-2), ['effort_values', 'effort_default']);
+    assert.deepEqual(
+      columnNames.slice(-4),
+      ['effort_values', 'effort_default', 'base_url', 'api_key'],
+    );
 
     const [legacy] = providerModelsDb.listCustomProviderModels('codex');
     assert.equal(legacy?.modelId, 'legacy-model');
     assert.equal(legacy?.effort, null);
+    // Rows that predate per-model gateways inherit the host environment.
+    assert.equal(legacy?.baseUrl, null);
+    assert.equal(legacy?.apiKey, null);
 
     // Running the migrations again is a no-op.
     runMigrations(getConnection());

@@ -186,6 +186,12 @@ CloudCLI has a plugin system that lets you add custom tabs with their own fronte
 
 **[Plugin Starter Template →](https://github.com/cloudcli-ai/cloudcli-plugin-starter)** — fork this repo to create your own plugin. It includes a working example with frontend rendering, live context updates, and RPC communication to a backend server.
 
+Plugin tabs receive the effective UI language in `api.context.locale` (for
+example `zh-CN` or `en`). Subscribe with `api.onContextChange` to update translated
+labels when the host language changes. Keep user inputs and plugin data intact
+during display-only updates; support an English fallback for older hosts that
+omit `locale`.
+
 **[Plugin Documentation →](https://cloudcli.ai/docs/plugin-overview)** — full guide to the plugin API, manifest format, security model, and more.
 
 ### Private Repositories

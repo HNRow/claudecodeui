@@ -21,6 +21,7 @@ type ProviderRuntimeServiceDependencies = {
     requestedModel?: string | null,
   ): Promise<string | undefined>;
   getProviderModels: typeof providerModelsService.getProviderModels;
+  getCustomModelEndpoint: typeof providerModelsService.getCustomModelEndpoint;
 };
 
 const defaultDependencies: ProviderRuntimeServiceDependencies = {
@@ -30,6 +31,7 @@ const defaultDependencies: ProviderRuntimeServiceDependencies = {
   resolveResumeModel: (provider, sessionId, requestedModel) =>
     providerModelsService.resolveResumeModel(provider, sessionId, requestedModel),
   getProviderModels: (provider) => providerModelsService.getProviderModels(provider),
+  getCustomModelEndpoint: (provider, modelId) => providerModelsService.getCustomModelEndpoint(provider, modelId),
 };
 
 /**
@@ -51,6 +53,7 @@ export function createProviderRuntimeService(
     resolveResumeModel: (sessionId, requestedModel) =>
       dependencies.resolveResumeModel(provider.id, sessionId, requestedModel),
     getProviderModels: async () => dependencies.getProviderModels(provider.id),
+    getCustomModelEndpoint: (modelId) => dependencies.getCustomModelEndpoint(provider.id, modelId),
     normalizeMessage: (raw, sessionId) => provider.sessions.normalizeMessage(raw, sessionId),
     async isProviderInstalled() {
       try {

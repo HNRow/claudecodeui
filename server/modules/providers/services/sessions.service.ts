@@ -6,6 +6,8 @@ import { projectsDb, sessionsDb } from '@/modules/database/index.js';
 import { broadcastSessionUpserted, chatRunRegistry } from '@/modules/websocket/index.js';
 import { providerRegistry } from '@/modules/providers/provider.registry.js';
 import { listBusyClaudeCliSessions } from '@/modules/providers/services/claude-cli-liveness.service.js';
+import { listBusyCodexCliSessions } from '@/modules/providers/services/codex-cli-liveness.service.js';
+import { listBusyKimiCliSessions } from '@/modules/providers/services/kimi-cli-liveness.service.js';
 import { sessionHistoryCache } from '@/modules/providers/services/session-history-cache.service.js';
 import type {
   BackgroundTaskSummary,
@@ -27,7 +29,7 @@ import { AppError, sliceTailPage } from '@/shared/utils.js';
  * abort — a task is stopped by id through `chat.stop-task` instead. `tasks`
  * rides along on both kinds whenever the session has any.
  *
- * A turn driven outside CloudCLI — the Claude CLI in the Shell view, or a
+ * A turn driven outside CloudCLI — a supported CLI in the Shell view, or a
  * terminal the user opened themselves — is listed the same way, with
  * `canInterrupt: false` because there is no run here to abort, and a
  * `statusText` saying where the work is happening.
@@ -182,11 +184,12 @@ export const sessionsService = {
           canInterrupt: false,
           tasks,
         });
+        runningById.set(sessionId, entries[entries.length - 1]);
       }
     }
 
     // The chat-run registry only knows about turns CloudCLI drives itself, so
-    // without this a session working under the Claude CLI — including one
+    // without this a session working under an external CLI — including one
     // CloudCLI spawned for its own Shell view — looks idle. A session already
     // listed above keeps its richer entry.
     for (const live of await listBusyClaudeCliSessions()) {
@@ -204,6 +207,41 @@ export const sessionsService = {
         // CloudCLI does not own, so it can be reported but not interrupted.
         canInterrupt: false,
         statusText: 'Running in the Claude CLI',
+      });
+      runningById.set(session.session_id, entries[entries.length - 1]);
+    }
+
+    // Kimi locks prove the external process is alive; the main-agent turn state
+    // distinguishes a running turn from a session merely waiting for input.
+    for (const live of await listBusyKimiCliSessions()) {
+      const session = sessionsDb.getSessionByProviderSessionId(live.providerSessionId);
+      if (!session || runningById.has(session.session_id)) {
+        continue;
+      }
+
+      entries.push({
+        sessionId: session.session_id,
+        provider: 'kimi',
+        startedAt: live.startedAt,
+        lastSeq: chatRunRegistry.getRun(session.session_id)?.lastSeq ?? 0,
+        canInterrupt: false,
+        statusText: 'Running in the Kimi CLI',
+      });
+      runningById.set(session.session_id, entries[entries.length - 1]);
+    }
+
+    // Codex daemons can retain completed thread locks, so both a live lock
+    // holder and an unfinished rollout task are required to report a turn.
+    for (const live of await listBusyCodexCliSessions()) {
+      const session = sessionsDb.getSessionByProviderSessionId(live.providerSessionId);
+      if (!session || session.provider !== 'codex' || runningById.has(session.session_id)) continue;
+      entries.push({
+        sessionId: session.session_id,
+        provider: 'codex',
+        startedAt: live.startedAt,
+        lastSeq: chatRunRegistry.getRun(session.session_id)?.lastSeq ?? 0,
+        canInterrupt: false,
+        statusText: 'Running in the Codex CLI',
       });
       runningById.set(session.session_id, entries[entries.length - 1]);
     }

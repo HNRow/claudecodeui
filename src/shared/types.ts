@@ -14,6 +14,10 @@ export type ProviderModelOption = {
   description?: string;
   recordId?: number;
   isCustom?: boolean;
+  /** Per-model gateway URL; absent when the model inherits the host environment. */
+  baseUrl?: string;
+  /** Whether a token is stored for `baseUrl`; the token itself never reaches the client. */
+  hasApiKey?: boolean;
   effort?: {
     default?: string;
     values: {
@@ -49,6 +53,10 @@ export type CustomProviderModelInput = {
     values: string[];
     default?: string;
   } | null;
+  /** Per-model gateway URL; omit to keep the stored value on edit, send `null` to clear it. */
+  baseUrl?: string | null;
+  /** Per-model token; omit to keep the stored token, send `null` to clear it. */
+  apiKey?: string | null;
 };
 
 /** Mutation callbacks a model menu calls to persist custom provider models. */

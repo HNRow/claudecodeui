@@ -14,6 +14,8 @@ type PluginTabContentProps = {
 
 type PluginContext = {
   theme: 'dark' | 'light';
+  /** 当前界面语言（如 `zh-CN`），插件据此选择自己的词条。 */
+  locale: string;
   // Plugin contract historically used `name` for the project identifier; we
   // keep that key and populate it from the DB `projectId` so external plugins
   // continue to receive a stable opaque id.
@@ -21,13 +23,16 @@ type PluginContext = {
   session: { id: string; title: string } | null;
 };
 
+/** Builds the context consumed by plugin tabs, including the host's effective display language. */
 function buildContext(
   isDarkMode: boolean,
+  locale: string,
   selectedProject: Project | null,
   selectedSession: ProjectSession | null,
 ): PluginContext {
   return {
     theme: isDarkMode ? 'dark' : 'light',
+    locale,
     project: selectedProject
       ? {
         name: selectedProject.projectId,
@@ -49,14 +54,15 @@ export default function PluginTabContent({
   selectedProject,
   selectedSession,
 }: PluginTabContentProps) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
+  const locale = i18n.resolvedLanguage ?? i18n.language;
   const containerRef = useRef<HTMLDivElement>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const { isDarkMode } = useTheme();
   const { plugins } = usePlugins();
 
   // Stable refs so effects don't need context values in their dep arrays
-  const contextRef = useRef<PluginContext>(buildContext(isDarkMode, selectedProject, selectedSession));
+  const contextRef = useRef<PluginContext>(buildContext(isDarkMode, locale, selectedProject, selectedSession));
   const contextCallbacksRef = useRef<Set<(ctx: PluginContext) => void>>(new Set());
 
   const moduleRef = useRef<any>(null);
@@ -65,13 +71,13 @@ export default function PluginTabContent({
 
   // Keep contextRef current and notify the mounted plugin on every context change
   useEffect(() => {
-    const ctx = buildContext(isDarkMode, selectedProject, selectedSession);
+    const ctx = buildContext(isDarkMode, locale, selectedProject, selectedSession);
     contextRef.current = ctx;
 
     for (const cb of contextCallbacksRef.current) {
       try { cb(ctx); } catch { /* plugin error — ignore */ }
     }
-  }, [isDarkMode, selectedProject, selectedSession]);
+  }, [isDarkMode, locale, selectedProject, selectedSession]);
 
   useEffect(() => {
     // Drop any previous plugin's error before this load attempt starts, so a

@@ -1,6 +1,8 @@
+import { execFile } from 'node:child_process';
 import { readFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { promisify } from 'node:util';
 
 import { resolveClaudeCodeExecutablePath } from '@/shared/claude-cli-path.js';
 import type { IProviderAuth } from '@/shared/interfaces.js';
@@ -24,11 +26,37 @@ type ClaudeApiKeyCredential = Pick<ProviderAuthSubscriptionOverride, 'variable' 
   label: string;
 };
 
+const execFileAsync = promisify(execFile);
+const MISSING_CREDENTIALS_ERROR = 'Claude CLI is not authenticated. Run claude /login or configure ANTHROPIC_API_KEY.';
+
+/** Reads Claude Code's default macOS credential store without invoking a shell or renewing tokens. */
+const readClaudeKeychain = async (): Promise<string | null> => {
+  if (process.platform !== 'darwin') return null;
+  try {
+    const { stdout } = await execFileAsync('/usr/bin/security', [
+      'find-generic-password', '-s', 'Claude Code-credentials', '-w',
+    ], { encoding: 'utf8', timeout: 3000, maxBuffer: 1024 * 1024 });
+    return stdout.trim() || null;
+  } catch {
+    // Missing/locked Keychain entries and command failures must never expose credential output.
+    return null;
+  }
+};
+
+/** Checks a filesystem error code without exposing its potentially sensitive message. */
 const hasErrorCode = (error: unknown, code: string): boolean => (
   error instanceof Error && 'code' in error && error.code === code
 );
 
+/** Provides Claude installation and login status to the providers module's registry. */
 export class ClaudeProviderAuth implements IProviderAuth {
+  /** Allows credential-store adapters to be supplied without accessing the real Keychain in tests. */
+  constructor(private readonly readKeychain: () => Promise<string | null> = readClaudeKeychain) {}
+
+  /** Resolves the same configuration directory for settings and file-based login credentials. */
+  private getConfigDirectory(): string {
+    return path.resolve(process.env.CLAUDE_CONFIG_DIR?.trim() || path.join(os.homedir(), '.claude'));
+  }
   /**
    * Checks whether the Claude Code CLI that chats run is available on this
    * host, and which version it is.
@@ -80,7 +108,7 @@ export class ClaudeProviderAuth implements IProviderAuth {
    */
   private async loadSettingsEnv(): Promise<Record<string, unknown>> {
     try {
-      const settingsPath = path.join(os.homedir(), '.claude', 'settings.json');
+      const settingsPath = path.join(this.getConfigDirectory(), 'settings.json');
       const content = await readFile(settingsPath, 'utf8');
       const settings = readObjectRecord(JSON.parse(content));
       return readObjectRecord(settings?.env) ?? {};
@@ -128,7 +156,7 @@ export class ClaudeProviderAuth implements IProviderAuth {
       // billed pay-as-you-go to the key (issue #568). Surface the bypassed
       // login so the settings page can warn about it; an expired or missing
       // login is not being bypassed, so it stays silent.
-      const subscription = await this.readCredentialsFile();
+      const subscription = await this.readSubscriptionCredentials();
       if (subscription.authenticated) {
         status.subscriptionOverride = {
           variable: apiKey.variable,
@@ -148,20 +176,48 @@ export class ClaudeProviderAuth implements IProviderAuth {
       return { authenticated: true, email: 'OAuth Token (long-lived)', method: 'environment' };
     }
 
-    return this.readCredentialsFile();
+    return this.readSubscriptionCredentials();
   }
 
   /**
-   * Reads the `claude /login` OAuth session from ~/.claude/.credentials.json and
-   * reports whether it is still usable. Shared by the fallback path (when no
-   * env credential exists) and by the API-key path (to detect a bypassed login).
+   * Reads file credentials first, then the default macOS Keychain. A custom config
+   * directory never falls back to another account's default Keychain entry.
    */
-  private async readCredentialsFile(): Promise<ClaudeCredentialsStatus> {
-    const missingCredentialsError = 'Claude CLI is not authenticated. Run claude /login or configure ANTHROPIC_API_KEY.';
-
+  private async readSubscriptionCredentials(): Promise<ClaudeCredentialsStatus> {
+    const fileStatus = await this.readCredentialsFile();
+    if (fileStatus.authenticated || this.getConfigDirectory() !== path.join(os.homedir(), '.claude')) {
+      return fileStatus;
+    }
     try {
-      const credPath = path.join(os.homedir(), '.claude', '.credentials.json');
+      const content = await this.readKeychain();
+      if (content) return this.parseCredentials(content, 'keychain');
+    } catch {
+      // An unavailable credential store leaves the existing file status intact.
+    }
+    return fileStatus;
+  }
+
+  /** Reads file-based login state while retaining actionable, sanitized failure messages. */
+  private async readCredentialsFile(): Promise<ClaudeCredentialsStatus> {
+    try {
+      const credPath = path.join(this.getConfigDirectory(), '.credentials.json');
       const content = await readFile(credPath, 'utf8');
+      return this.parseCredentials(content, 'credentials_file');
+    } catch (error) {
+      return {
+        authenticated: false,
+        email: null,
+        method: null,
+        error: hasErrorCode(error, 'ENOENT')
+          ? MISSING_CREDENTIALS_ERROR
+          : 'Unable to read Claude credentials. Run claude /login again.',
+      };
+    }
+  }
+
+  /** Applies the same OAuth expiry and refreshability rules to both supported credential stores. */
+  private parseCredentials(content: string, method: 'credentials_file' | 'keychain'): ClaudeCredentialsStatus {
+    try {
       const creds = readObjectRecord(JSON.parse(content)) ?? {};
       const oauth = readObjectRecord(creds.claudeAiOauth);
       const accessToken = readOptionalString(oauth?.accessToken);
@@ -173,7 +229,7 @@ export class ClaudeProviderAuth implements IProviderAuth {
           return {
             authenticated: true,
             email,
-            method: 'credentials_file',
+            method,
           };
         }
 
@@ -191,7 +247,7 @@ export class ClaudeProviderAuth implements IProviderAuth {
           return {
             authenticated: true,
             email,
-            method: 'credentials_file',
+            method,
           };
         }
 
@@ -207,14 +263,12 @@ export class ClaudeProviderAuth implements IProviderAuth {
         authenticated: false,
         email: null,
         method: null,
-        error: missingCredentialsError,
+        error: MISSING_CREDENTIALS_ERROR,
       };
     } catch (error) {
       let errorMessage = 'Unable to read Claude credentials. Run claude /login again.';
 
-      if (hasErrorCode(error, 'ENOENT')) {
-        errorMessage = missingCredentialsError;
-      } else if (error instanceof SyntaxError) {
+      if (error instanceof SyntaxError) {
         errorMessage = 'Claude credentials are unreadable. Run claude /login again.';
       }
 

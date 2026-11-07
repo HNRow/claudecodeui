@@ -65,6 +65,8 @@ const toCustomProviderModelOption = (
   label: record.model,
   recordId: record.recordId,
   isCustom: true,
+  // The key itself never leaves the server; clients only learn whether one is set.
+  ...(record.baseUrl ? { baseUrl: record.baseUrl, hasApiKey: Boolean(record.apiKey) } : {}),
   ...(record.effort
     ? {
       effort: {
@@ -120,11 +122,32 @@ const mergeProviderModels = (
   };
 };
 
-const normalizeCustomModelInput = (input: CustomProviderModelInput): CustomProviderModelInput => ({
-  id: input.id.trim(),
-  model: input.model.trim(),
-  ...(input.effort === undefined ? {} : { effort: input.effort }),
-});
+/** Trims an optional endpoint field; a blank string means "no override". */
+const normalizeEndpointField = (value: string | null | undefined): string | null | undefined => {
+  if (value === undefined || value === null) {
+    return value;
+  }
+
+  const trimmed = value.trim();
+  return trimmed ? trimmed : null;
+};
+
+const normalizeCustomModelInput = (input: CustomProviderModelInput): CustomProviderModelInput => {
+  const baseUrl = normalizeEndpointField(input.baseUrl);
+  // Dropping the gateway also drops its token: a stored key with no URL would
+  // otherwise apply to whatever endpoint the host environment resolves next.
+  const apiKey = baseUrl === null && input.baseUrl !== undefined
+    ? null
+    : normalizeEndpointField(input.apiKey);
+
+  return {
+    id: input.id.trim(),
+    model: input.model.trim(),
+    ...(input.effort === undefined ? {} : { effort: input.effort }),
+    ...(baseUrl === undefined ? {} : { baseUrl }),
+    ...(apiKey === undefined ? {} : { apiKey }),
+  };
+};
 
 const assertEffortLevelsSupported = (
   provider: LLMProvider,
@@ -522,9 +545,27 @@ export const createProviderModelsService = (dependencies: ProviderModelsServiceD
     return recordedModel || normalizedRequestedModel || undefined;
   };
 
+  /**
+   * Endpoint override stored on one custom model, or null when it inherits the
+   * host environment. The Claude runtime calls this per turn so a single
+   * catalog can route some models to a local gateway and the rest upstream.
+   */
+  const getCustomModelEndpoint = (
+    provider: LLMProvider,
+    modelId: string,
+  ): { baseUrl: string; apiKey: string | null } | null => {
+    const record = catalog.findCustomProviderModelByModelId(provider, modelId);
+    if (!record?.baseUrl) {
+      return null;
+    }
+
+    return { baseUrl: record.baseUrl, apiKey: record.apiKey };
+  };
+
   return {
     getProviderModels,
     setCustomModelsOnly,
+    getCustomModelEndpoint,
     createCustomModel,
     updateCustomModel,
     deleteCustomModel,

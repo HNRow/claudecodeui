@@ -608,7 +608,99 @@ const parseCustomProviderModelPayload = (payload: unknown): CustomProviderModelI
   }
 
   const effort = parseCustomProviderModelEffort(body.effort);
-  return effort === undefined ? { model, id } : { model, id, effort };
+  const baseUrl = parseCustomProviderModelBaseUrl(body.baseUrl);
+  const apiKey = parseCustomProviderModelApiKey(body.apiKey);
+  return {
+    model,
+    id,
+    ...(effort === undefined ? {} : { effort }),
+    ...(baseUrl === undefined ? {} : { baseUrl }),
+    ...(apiKey === undefined ? {} : { apiKey }),
+  };
+};
+
+/**
+ * Parses the optional per-model gateway URL.
+ *
+ * `undefined` keeps the stored value, `null` or a blank string clears it, and
+ * anything else must be an absolute http(s) URL. A relative or `file:` target
+ * is rejected here because the runtime would hand it straight to the CLI.
+ */
+const parseCustomProviderModelBaseUrl = (
+  value: unknown,
+): string | null | undefined => {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (value === null) {
+    return null;
+  }
+  if (typeof value !== 'string') {
+    throw new AppError('baseUrl must be a string.', {
+      code: 'INVALID_MODEL_BASE_URL',
+      statusCode: 400,
+    });
+  }
+
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return null;
+  }
+  if (trimmed.length > 500) {
+    throw new AppError('baseUrl must be 500 characters or fewer.', {
+      code: 'INVALID_MODEL_BASE_URL',
+      statusCode: 400,
+    });
+  }
+
+  let parsed: URL;
+  try {
+    parsed = new URL(trimmed);
+  } catch {
+    throw new AppError('baseUrl must be an absolute URL.', {
+      code: 'INVALID_MODEL_BASE_URL',
+      statusCode: 400,
+    });
+  }
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+    throw new AppError('baseUrl must use http or https.', {
+      code: 'INVALID_MODEL_BASE_URL',
+      statusCode: 400,
+    });
+  }
+
+  return trimmed;
+};
+
+/** Parses the optional per-model token; blank clears it, omitted keeps it. */
+const parseCustomProviderModelApiKey = (
+  value: unknown,
+): string | null | undefined => {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (value === null) {
+    return null;
+  }
+  if (typeof value !== 'string') {
+    throw new AppError('apiKey must be a string.', {
+      code: 'INVALID_MODEL_API_KEY',
+      statusCode: 400,
+    });
+  }
+
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return null;
+  }
+  if (trimmed.length > 500) {
+    throw new AppError('apiKey must be 500 characters or fewer.', {
+      code: 'INVALID_MODEL_API_KEY',
+      statusCode: 400,
+    });
+  }
+
+  return trimmed;
 };
 
 /** Reads the `{ enabled: boolean }` body of the custom-models-only toggle. */

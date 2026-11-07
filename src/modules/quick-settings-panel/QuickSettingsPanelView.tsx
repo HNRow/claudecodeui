@@ -31,7 +31,9 @@ type QuickSettingsPanelViewProps = {
 /** Exported as QuickSettingsPanel and rendered by the project-workspace module as its quick settings drawer — an overlay by default, docked into the workspace row when pinned. */
 function QuickSettingsPanelView({ selectedProject, onInsertCommand }: QuickSettingsPanelViewProps) {
   const { isMobile } = useDeviceSettings({ trackPWA: false });
-  const canPin = !isMobile;
+  // Landscape phones and tablets need the main workspace width; retain pinning only on wide desktops.
+  const { isMobile: needsOverlay } = useDeviceSettings({ mobileBreakpoint: 1280, trackPWA: false });
+  const canPin = !needsOverlay;
   const {
     isOpen,
     isPinned,
@@ -184,7 +186,9 @@ function QuickSettingsPanelView({ selectedProject, onInsertCommand }: QuickSetti
         )
       ) : (
         <div
-          className={`fixed right-0 top-0 z-[9999] h-full w-64 transform border-l border-border bg-background shadow-xl transition-transform duration-150 ease-out ${isOpen ? 'translate-x-0' : 'translate-x-full'} ${isMobile ? 'h-screen' : ''}`}
+          hidden={!isOpen}
+          aria-hidden={!isOpen}
+          className={`fixed right-0 top-0 z-[9999] h-full w-64 max-w-full transform border-l border-border bg-background shadow-xl transition-transform duration-150 ease-out ${isOpen ? 'translate-x-0' : 'translate-x-full'}`}
         >
           {panelBody}
         </div>

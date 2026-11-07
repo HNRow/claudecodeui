@@ -471,6 +471,20 @@ const addProviderModelEffortColumns = (db: Database): void => {
 };
 
 /**
+ * Adds the per-model endpoint columns to the custom-model library.
+ *
+ * A custom model may point at its own gateway (for example a local vLLM
+ * server), so the Claude runtime can send that model to a different base URL
+ * than the host environment. Rows without an endpoint keep NULL and inherit the
+ * host environment unchanged.
+ */
+const addProviderModelEndpointColumns = (db: Database): void => {
+  const columnNames = getTableInfo(db, 'provider_models').map((column) => column.name);
+  addColumnToTableIfNotExists(db, 'provider_models', columnNames, 'base_url', 'TEXT DEFAULT NULL');
+  addColumnToTableIfNotExists(db, 'provider_models', columnNames, 'api_key', 'TEXT DEFAULT NULL');
+};
+
+/**
  * Rebuilds the custom-model library when its CHECK constraint predates the
  * `kimi` provider.
  *
@@ -499,10 +513,10 @@ const rebuildProviderModelsTableForKimi = (db: Database): void => {
     db.exec(PROVIDER_MODELS_TABLE_SCHEMA_SQL.replace('provider_models (', 'provider_models__new ('));
     db.exec(`
       INSERT INTO provider_models__new (
-        id, provider, model_id, model_name, sort_order, effort_values, effort_default
+        id, provider, model_id, model_name, sort_order, effort_values, effort_default, base_url, api_key
       )
       SELECT
-        id, provider, model_id, model_name, sort_order, effort_values, effort_default
+        id, provider, model_id, model_name, sort_order, effort_values, effort_default, base_url, api_key
       FROM provider_models
     `);
     db.exec('DROP TABLE provider_models');
@@ -560,6 +574,7 @@ export const runMigrations = (db: Database) => {
     db.exec('CREATE INDEX IF NOT EXISTS idx_notification_channel_endpoints_enabled ON notification_channel_endpoints(enabled)');
     db.exec(PROVIDER_MODELS_TABLE_SCHEMA_SQL);
     addProviderModelEffortColumns(db);
+    addProviderModelEndpointColumns(db);
     rebuildProviderModelsTableForKimi(db);
     db.exec(`
       CREATE INDEX IF NOT EXISTS idx_provider_models_provider_order

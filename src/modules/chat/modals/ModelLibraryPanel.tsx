@@ -58,6 +58,10 @@ export default function ModelLibraryPanel({
   // Effort levels ticked in the form; they become the custom model's declared
   // levels, which is what makes the composer offer Reasoning for it.
   const [effortLevels, setEffortLevels] = useState<string[]>([]);
+  // Per-model gateway. The token is write-only: editing shows whether one is
+  // stored, and a blank field keeps it.
+  const [baseUrl, setBaseUrl] = useState('');
+  const [apiKey, setApiKey] = useState('');
   const [saving, setSaving] = useState(false);
   const [deletingRecordId, setDeletingRecordId] = useState<number | null>(null);
   const [confirmDeleteRecordId, setConfirmDeleteRecordId] = useState<number | null>(null);
@@ -108,6 +112,8 @@ export default function ModelLibraryPanel({
     setModel('');
     setModelId('');
     setEffortLevels([]);
+    setBaseUrl('');
+    setApiKey('');
     setError(null);
   };
 
@@ -139,6 +145,8 @@ export default function ModelLibraryPanel({
     setModel(option.label);
     setModelId(option.value);
     setEffortLevels(option.effort?.values.map((level) => level.value) ?? []);
+    setBaseUrl(option.baseUrl ?? '');
+    setApiKey('');
     setConfirmDeleteRecordId(null);
     setNotice(null);
     setError(null);
@@ -186,6 +194,14 @@ export default function ModelLibraryPanel({
     }
 
     const effort = buildEffortInput();
+    // Always send baseUrl so clearing the field clears the override; send the
+    // token only when the user typed one, so an untouched edit keeps it.
+    const trimmedBaseUrl = baseUrl.trim();
+    const trimmedApiKey = apiKey.trim();
+    const endpointInput = {
+      baseUrl: trimmedBaseUrl || null,
+      ...(trimmedApiKey ? { apiKey: trimmedApiKey } : {}),
+    };
     setSaving(true);
     setError(null);
     setNotice(null);
@@ -195,6 +211,7 @@ export default function ModelLibraryPanel({
           model: normalizedModel,
           id: normalizedId,
           ...(effort === undefined ? {} : { effort }),
+          ...endpointInput,
         });
         setNotice(`${normalizedModel} was updated.`);
       } else {
@@ -202,6 +219,7 @@ export default function ModelLibraryPanel({
           model: normalizedModel,
           id: normalizedId,
           ...(effort === undefined ? {} : { effort }),
+          ...endpointInput,
         });
         setNotice(`${normalizedModel} was added.`);
       }
@@ -338,6 +356,46 @@ export default function ModelLibraryPanel({
           <p className="mt-1.5 text-[11px] leading-4 text-muted-foreground">
             Use the exact identifier accepted by the provider CLI. IDs cannot contain spaces.
           </p>
+
+          {selectedProvider === 'claude' && (
+            <>
+              <label className="mt-4 block text-xs font-semibold text-foreground" htmlFor="custom-model-base-url">
+                {t('chat:modelLibrary.baseUrl')}
+              </label>
+              <Input
+                id="custom-model-base-url"
+                value={baseUrl}
+                onChange={(event) => setBaseUrl(event.target.value)}
+                maxLength={500}
+                placeholder="http://10.0.0.6:8000"
+                autoComplete="off"
+                spellCheck={false}
+                className="mt-1.5 h-10 rounded-xl bg-background font-mono"
+              />
+              <p className="mt-1.5 text-[11px] leading-4 text-muted-foreground">
+                {t('chat:modelLibrary.baseUrlHint')}
+              </p>
+
+              <label className="mt-4 block text-xs font-semibold text-foreground" htmlFor="custom-model-api-key">
+                {t('chat:modelLibrary.apiKey')}
+              </label>
+              <Input
+                id="custom-model-api-key"
+                type="password"
+                value={apiKey}
+                onChange={(event) => setApiKey(event.target.value)}
+                maxLength={500}
+                placeholder={editing?.hasApiKey
+                  ? t('chat:modelLibrary.apiKeyKept')
+                  : t('chat:modelLibrary.apiKeyOptional')}
+                autoComplete="off"
+                className="mt-1.5 h-10 rounded-xl bg-background font-mono"
+              />
+              <p className="mt-1.5 text-[11px] leading-4 text-muted-foreground">
+                {t('chat:modelLibrary.apiKeyHint')}
+              </p>
+            </>
+          )}
 
           {providerEffortLevels.length > 0 && (
             <fieldset className="mt-4">

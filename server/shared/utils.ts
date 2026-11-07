@@ -1644,3 +1644,19 @@ export function findApplicationRoot(startDirectory: string): string {
     ? path.dirname(parentDirectory)
     : parentDirectory;
 }
+
+// ---------------------------
+//----------------- PROCESS LIVENESS ------------
+/**
+ * Checks whether a process exists without sending it a signal. Signal 0 only
+ * performs error checking; EPERM means the process exists but belongs to
+ * another user, so it still counts as alive for provider liveness probes.
+ */
+export function isProcessAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return (error as NodeJS.ErrnoException)?.code === 'EPERM';
+  }
+}

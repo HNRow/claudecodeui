@@ -73,6 +73,8 @@ const createCatalogStore = () => {
         model: input.model,
         sortOrder: readRows(provider).length,
         effort: input.effort ?? null,
+        baseUrl: input.baseUrl ?? null,
+        apiKey: input.apiKey ?? null,
       };
       rows.set(provider, [...readRows(provider), record]);
       return record;
@@ -92,6 +94,8 @@ const createCatalogStore = () => {
         model: input.model,
         // Mirrors the repository: an omitted effort keeps the stored levels.
         effort: input.effort === undefined ? existing.effort : input.effort,
+        baseUrl: input.baseUrl === undefined ? existing.baseUrl : input.baseUrl,
+        apiKey: input.apiKey === undefined ? existing.apiKey : input.apiKey,
       };
       rows.set(provider, readRows(provider).map((record) => (
         record.recordId === recordId ? updated : record
@@ -336,6 +340,47 @@ test('custom models carry declared effort levels into the merged catalog', async
     effort: null,
   });
   assert.equal('effort' in cleared.model, false);
+});
+
+test('custom models can pin their own gateway and never leak the token to the catalog', async () => {
+  const { service } = createTestService();
+  const created = await service.createCustomModel('claude', {
+    model: 'Local DeepSeek',
+    id: 'deepseek-v4.1-flash',
+    baseUrl: 'http://10.0.0.6:8000',
+    apiKey: 'local-secret',
+  });
+
+  assert.equal(created.model.baseUrl, 'http://10.0.0.6:8000');
+  assert.equal(created.model.hasApiKey, true);
+  assert.equal('apiKey' in created.model, false);
+  assert.deepEqual(service.getCustomModelEndpoint('claude', 'deepseek-v4.1-flash'), {
+    baseUrl: 'http://10.0.0.6:8000',
+    apiKey: 'local-secret',
+  });
+
+  // A rename that does not mention the endpoint keeps it.
+  const renamed = await service.updateCustomModel('claude', created.model.recordId as number, {
+    model: 'DeepSeek local',
+    id: 'deepseek-v4.1-flash',
+  });
+  assert.equal(renamed.model.baseUrl, 'http://10.0.0.6:8000');
+
+  // Clearing the base URL also clears the token, so it cannot follow the host.
+  const cleared = await service.updateCustomModel('claude', created.model.recordId as number, {
+    model: 'DeepSeek local',
+    id: 'deepseek-v4.1-flash',
+    baseUrl: null,
+  });
+  assert.equal('baseUrl' in cleared.model, false);
+  assert.equal(service.getCustomModelEndpoint('claude', 'deepseek-v4.1-flash'), null);
+});
+
+test('models without a gateway inherit the host environment', async () => {
+  const { service } = createTestService();
+  await service.createCustomModel('claude', { model: 'Plain', id: 'plain' });
+
+  assert.equal(service.getCustomModelEndpoint('claude', 'plain'), null);
 });
 
 test('custom models without declared effort levels expose no effort', async () => {
