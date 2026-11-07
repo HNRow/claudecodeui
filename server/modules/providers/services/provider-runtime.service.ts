@@ -26,6 +26,7 @@ type ProviderRuntimeServiceDependencies = {
   ): Promise<string | undefined>;
   getProviderModels: typeof providerModelsService.getProviderModels;
   getCustomModelEndpoint: typeof providerModelsService.getCustomModelEndpoint;
+  adoptProviderSession: typeof sessionsService.adoptProviderSession;
   /**
    * Builds the SDK query for a side-question run. Production leaves this
    * unset so the runtime uses the SDK's own; tests supply a scripted stream.
@@ -41,6 +42,7 @@ const defaultDependencies: ProviderRuntimeServiceDependencies = {
     providerModelsService.resolveResumeModel(provider, sessionId, requestedModel),
   getProviderModels: (provider) => providerModelsService.getProviderModels(provider),
   getCustomModelEndpoint: (provider, modelId) => providerModelsService.getCustomModelEndpoint(provider, modelId),
+  adoptProviderSession: (sessionId, input) => sessionsService.adoptProviderSession(sessionId, input),
 };
 
 /**
@@ -63,6 +65,7 @@ export function createProviderRuntimeService(
       dependencies.resolveResumeModel(provider.id, sessionId, requestedModel),
     getProviderModels: async () => dependencies.getProviderModels(provider.id),
     getCustomModelEndpoint: (modelId) => dependencies.getCustomModelEndpoint(provider.id, modelId),
+    adoptProviderSession: (sessionId, input) => dependencies.adoptProviderSession(sessionId, input),
     normalizeMessage: (raw, sessionId) => provider.sessions.normalizeMessage(raw, sessionId),
     async isProviderInstalled() {
       try {

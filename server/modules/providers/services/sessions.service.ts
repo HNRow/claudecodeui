@@ -149,6 +149,15 @@ function resolveProjectDisplayName(
  */
 export const sessionsService = {
   /**
+   * Repoints one app session at a provider session the runtime created on its
+   * own behalf, used when a provider forces a branch mid-conversation (Codex
+   * forks a locked thread so the run can continue).
+   */
+  adoptProviderSession(sessionId: string, input: { providerSessionId: string; jsonlPath: string }): void {
+    sessionsDb.repointSessionToProviderSession(sessionId, input);
+  },
+
+  /**
    * Lists provider ids that can load session history and normalize live messages.
    */
   listProviderIds(): LLMProvider[] {

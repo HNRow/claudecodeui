@@ -288,7 +288,7 @@ async function queryCodex(
 
   // Callers pass the stable app session id; the SDK resumes threads with the
   // provider-native id recorded on the session row.
-  const providerSessionId = context.resolveProviderSessionId(sessionId);
+  let providerSessionId = context.resolveProviderSessionId(sessionId);
 
   const resolvedModel = await context.resolveResumeModel(sessionId, model);
 
@@ -333,8 +333,26 @@ async function queryCodex(
   try {
     // Completed threads can still be loaded in an external daemon: idle does
     // not imply resumable from a separate exec process. Never delete its lock.
+    // A locked thread is forked instead: Codex allows one writer per thread, so
+    // the run continues on a copy and the user never has to fork by hand.
     if (providerSessionId && await hasCodexCliWriter(providerSessionId)) {
-      throw new Error(CODEX_WRITER_CONFLICT_MESSAGE);
+      try {
+        const fork = await codexAppServer.forkThread({
+          threadId: providerSessionId,
+          cwd: workingDirectory,
+        });
+        providerSessionId = fork.threadId;
+        capturedSessionId = fork.threadId;
+        if (sessionId) {
+          context.adoptProviderSession?.(sessionId, {
+            providerSessionId: fork.threadId,
+            jsonlPath: fork.path,
+          });
+        }
+      } catch (forkError) {
+        console.warn('[Codex] Could not fork a locked thread; surfacing the writer conflict:', forkError);
+        throw new Error(CODEX_WRITER_CONFLICT_MESSAGE);
+      }
     }
     codex = new Codex();
 

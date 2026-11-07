@@ -5,6 +5,7 @@ import test from 'node:test';
 import { Codex } from '@openai/codex-sdk';
 import type { Thread, ThreadOptions } from '@openai/codex-sdk';
 
+import { codexAppServer } from '@/modules/providers/list/codex/codex-app-server.client.js';
 import { codexRuntime } from '@/modules/providers/list/codex/codex-runtime.provider.js';
 import type { ProviderRuntimeContext } from '@/shared/index.js';
 import { CODEX_THREAD_ID, codexLifecycle, withCodexCliFixture } from '@/modules/providers/tests/codex-cli.fixture.js';
@@ -60,9 +61,67 @@ for (const resumed of [false, true]) {
 }
 
 for (const completed of [false, true]) {
-  test(`Codex refuses a live external writer before starting exec (completed=${completed})`, async (t) => {
+  test(`Codex forks a thread locked by another client instead of failing (completed=${completed})`, async (t) => {
     await withCodexCliFixture(async ({ stopHolder }) => {
       const messages: any[] = [];
+      const adopted: Array<{ sessionId: string; providerSessionId: string; jsonlPath: string }> = [];
+      const fork = t.mock.method(codexAppServer, 'forkThread', async () => ({
+        threadId: 'forked-thread',
+        path: '/tmp/forked-thread.jsonl',
+      }));
+      let resumedId: string | undefined;
+      const resume = t.mock.method(Codex.prototype, 'resumeThread', (id: string) => {
+        resumedId = id;
+        return {
+          id,
+          runStreamed: async () => ({ events: (async function* () {})() }),
+        } as unknown as Thread;
+      });
+      const context: ProviderRuntimeContext = {
+        resolveProviderSessionId: () => CODEX_THREAD_ID,
+        resolveResumeModel: async () => 'test-model',
+        getProviderModels: async () => ({ OPTIONS: [], DEFAULT: 'test-model' }),
+        normalizeMessage: () => [],
+        isProviderInstalled: async () => true,
+        adoptProviderSession: (sessionId, input) => adopted.push({ sessionId, ...input }),
+      };
+
+      await codexRuntime.run('commit + push', { sessionId: 'app-conflict', cwd: process.cwd() },
+        { isWebSocketWriter: true, send: message => messages.push(message) }, context);
+
+      assert.equal(fork.mock.callCount(), 1, 'the locked thread is forked before exec starts');
+      assert.equal(resume.mock.callCount(), 1, 'the run continues on the fork');
+      assert.equal(resumedId, 'forked-thread');
+      assert.deepEqual(adopted, [{
+        sessionId: 'app-conflict',
+        providerSessionId: 'forked-thread',
+        jsonlPath: '/tmp/forked-thread.jsonl',
+      }]);
+      assert.ok(!messages.some(message => message.kind === 'error'));
+      assert.ok(messages.some(message => message.kind === 'complete' && message.exitCode === 0));
+
+      // A stale lock file does not prevent resuming the same original thread.
+      await stopHolder();
+      fork.mock.restore();
+      resume.mock.restore();
+      const retry = t.mock.method(Codex.prototype, 'resumeThread', () => ({
+        id: CODEX_THREAD_ID,
+        runStreamed: async () => ({ events: (async function* () {})() }),
+      }) as unknown as Thread);
+      messages.length = 0;
+      await codexRuntime.run('commit + push', { sessionId: 'app-conflict', cwd: process.cwd() },
+        { isWebSocketWriter: true, send: message => messages.push(message) }, context);
+      assert.equal(retry.mock.callCount(), 1);
+      assert.ok(messages.some(message => message.kind === 'complete' && message.exitCode === 0));
+    }, { lines: [codexLifecycle(completed ? 'task_complete' : 'task_started')] });
+  });
+
+  test(`Codex reports the writer conflict when forking a locked thread fails (completed=${completed})`, async (t) => {
+    await withCodexCliFixture(async () => {
+      const messages: any[] = [];
+      t.mock.method(codexAppServer, 'forkThread', async () => {
+        throw new Error('app-server unavailable');
+      });
       const resume = t.mock.method(Codex.prototype, 'resumeThread', () => {
         throw new Error('exec must not start while an external writer holds the lock');
       });
@@ -73,22 +132,14 @@ for (const completed of [false, true]) {
         normalizeMessage: () => [],
         isProviderInstalled: async () => true,
       };
+
       await codexRuntime.run('commit + push', { sessionId: 'app-conflict', cwd: process.cwd() },
         { isWebSocketWriter: true, send: message => messages.push(message) }, context);
+
       assert.equal(resume.mock.callCount(), 0);
       const error = messages.find(message => message.kind === 'error');
       assert.match(error?.content ?? '', /another Codex client/i);
-      assert.match(error.content, /fork/i);
       assert.ok(messages.some(message => message.kind === 'complete' && message.exitCode === 1));
-      await stopHolder();
-      const thread = { id: CODEX_THREAD_ID, runStreamed: async () => ({ events: (async function* () {})() }) } as unknown as Thread;
-      resume.mock.restore();
-      const retry = t.mock.method(Codex.prototype, 'resumeThread', () => thread);
-      messages.length = 0;
-      await codexRuntime.run('commit + push', { sessionId: 'app-conflict', cwd: process.cwd() },
-        { isWebSocketWriter: true, send: message => messages.push(message) }, context);
-      assert.equal(retry.mock.callCount(), 1, 'a stale lock file does not prevent resuming after the holder exits');
-      assert.ok(messages.some(message => message.kind === 'complete' && message.exitCode === 0));
     }, { lines: [codexLifecycle(completed ? 'task_complete' : 'task_started')] });
   });
 }

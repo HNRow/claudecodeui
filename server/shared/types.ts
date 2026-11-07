@@ -794,6 +794,11 @@ export type ProviderRuntimeContext = {
    * gateway can omit it; the Claude runtime uses it per turn.
    */
   getCustomModelEndpoint?(modelId: string): { baseUrl: string | null; apiKey: string | null } | null;
+  /**
+   * Repoints an app session at a provider session the runtime created itself.
+   * The Codex runtime uses it after forking a thread locked by another client.
+   */
+  adoptProviderSession?(sessionId: string, input: { providerSessionId: string; jsonlPath: string }): void;
   normalizeMessage(raw: unknown, sessionId: string | null): NormalizedMessage[];
   isProviderInstalled(): Promise<boolean>;
   /**
