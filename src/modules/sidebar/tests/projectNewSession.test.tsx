@@ -28,7 +28,7 @@ function renderProject(compact: boolean, expanded: boolean) {
       sessionRenameId: null, sessionRenameDraft: '', tasksEnabled: false, mcpServerStatus: null,
       onRenameDraftChange: noop, onToggleProject: toggle, onProjectSelect: select,
       onToggleStarProject: noop, onStartEditingProject: noop, onCancelEditingProject: noop,
-      onSaveProjectName: noop, onDeleteProject: noop, onSessionSelect: noop, onDeleteSession: noop,
+      onSaveProjectName: noop, onDeleteProject: noop, onSessionSelect: noop, onDeleteSession: noop, onArchiveSession: noop,
       onLoadMoreSessions: noop, activeSessions: new Set<string>(), backgroundSessionIds: new Set<string>(),
       attentionSessionIds: new Set<string>(), onNewSession: create, onStartEditingSession: noop,
       onCancelEditingSession: noop, onSaveEditingSession: noop, selectedSessionIds: null,
