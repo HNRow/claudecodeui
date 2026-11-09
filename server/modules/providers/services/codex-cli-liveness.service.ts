@@ -30,6 +30,33 @@ const MAX_LINE_BYTES = 4 * 1024 * 1024;
 const THREAD_LOCK_NAME = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}\.lock$/i;
 const rolloutCache = new Map<string, CachedRollout>();
 
+/**
+ * Resolves `lsof` once, preferring absolute paths.
+ *
+ * A server launched by the desktop app inherits the GUI environment, whose
+ * PATH can omit /usr/sbin — and then `lsof` is not found, every lock looks
+ * unheld, and the runtime resumes a thread another Codex client still owns.
+ */
+const LSOF_CANDIDATES = ['/usr/sbin/lsof', '/usr/bin/lsof', '/bin/lsof'];
+
+/** `CODEX_LSOF_PATH` overrides discovery, for unusual installs and for tests. */
+async function resolveLsofCommand(): Promise<string> {
+  const configured = process.env.CODEX_LSOF_PATH?.trim();
+  if (configured) {
+    return configured;
+  }
+
+  for (const candidate of LSOF_CANDIDATES) {
+    try {
+      await fsp.access(candidate, fs.constants.X_OK);
+      return candidate;
+    } catch {
+      // Try the next well-known location.
+    }
+  }
+  return 'lsof';
+}
+
 /** Used by the Codex runtime to avoid a second writer even when an idle daemon retains its thread lock. */
 export async function hasCodexCliWriter(providerSessionId: string): Promise<boolean> {
   const name = `${providerSessionId}.lock`;
@@ -88,7 +115,7 @@ async function listHeldLockPaths(locks: LockCandidate[]): Promise<Set<string>> {
   if (locks.length === 0) return held;
   let stdout: string;
   try {
-    ({ stdout } = await runFile('lsof', ['-nP', '-F0pn', '--', ...locks.map((lock) => lock.lockPath)], {
+    ({ stdout } = await runFile(await resolveLsofCommand(), ['-nP', '-F0pn', '--', ...locks.map((lock) => lock.lockPath)], {
       timeout: 2000, maxBuffer: 1024 * 1024, encoding: 'utf8',
     }));
   } catch (error) {

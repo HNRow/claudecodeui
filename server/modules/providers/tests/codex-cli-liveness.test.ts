@@ -157,12 +157,15 @@ test('indexed jsonl_path takes precedence over a different fallback rollout', as
 
 test('unavailable lsof fails closed and invalid lock names or symlinks are ignored', async () => {
   await withCodexCliFixture(async ({ home, lockPath }) => {
-    const previousPath = process.env.PATH;
-    process.env.PATH = home;
+    // Absolute discovery would still find the real lsof, so force a missing
+    // binary explicitly instead of relying on a stripped PATH.
+    const previousLsof = process.env.CODEX_LSOF_PATH;
+    process.env.CODEX_LSOF_PATH = path.join(home, 'missing-lsof');
     try {
       assert.deepEqual(await listBusyCodexCliSessions(), []);
     } finally {
-      process.env.PATH = previousPath;
+      if (previousLsof === undefined) delete process.env.CODEX_LSOF_PATH;
+      else process.env.CODEX_LSOF_PATH = previousLsof;
     }
     await writeFile(path.join(home, 'thread-writer-locks', 'bad-name.lock'), '');
     await rm(lockPath);
