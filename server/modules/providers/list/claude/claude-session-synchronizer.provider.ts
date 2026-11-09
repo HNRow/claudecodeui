@@ -16,6 +16,8 @@ type ParsedSession = {
   sessionId: string;
   projectPath: string;
   sessionName?: string;
+  /** 'agent' when the transcript was driven by an SDK automation, not a person. */
+  origin: 'agent' | null;
 };
 
 /**
@@ -72,7 +74,8 @@ export class ClaudeSessionSynchronizer implements IProviderSessionSynchronizer {
         parsed.sessionName,
         timestamps.createdAt,
         timestamps.updatedAt,
-        filePath
+        filePath,
+        parsed.origin
       );
       processed += 1;
     }
@@ -105,7 +108,8 @@ export class ClaudeSessionSynchronizer implements IProviderSessionSynchronizer {
       parsed.sessionName,
       timestamps.createdAt,
       timestamps.updatedAt,
-      filePath
+      filePath,
+      parsed.origin
     );
   }
 
@@ -125,9 +129,14 @@ export class ClaudeSessionSynchronizer implements IProviderSessionSynchronizer {
         return null;
       }
 
+      // Claude Code records how each turn was started. `sdk-py` means an
+      // external SDK automation (plugin background runs), which the sidebar
+      // shows in its own "Agent sessions" group instead of mixing with chats.
+      const entrypoint = typeof data.entrypoint === 'string' ? data.entrypoint : undefined;
       return {
         sessionId,
         projectPath,
+        origin: entrypoint === 'sdk-py' ? ('agent' as const) : null,
       };
     });
 

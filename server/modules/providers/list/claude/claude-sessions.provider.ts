@@ -10,6 +10,7 @@ import type {
   FetchHistoryOptions,
   FetchHistoryResult,
   NormalizedMessage,
+  ProviderSessionSubagent,
   SubagentActivity,
   SubagentInfo,
   TaskUsage,
@@ -199,6 +200,7 @@ async function readClaudeSubagentTranscript(filePath: string): Promise<ClaudeSub
 type ClaudeSubagentMeta = {
   agentType?: string;
   description?: string;
+  model?: string;
 };
 
 /** Reads the sidecar `.meta.json` Claude writes next to a subagent transcript. */
@@ -208,6 +210,7 @@ async function readClaudeSubagentMeta(metaPath: string): Promise<ClaudeSubagentM
     return {
       agentType: typeof parsed.agentType === 'string' ? parsed.agentType : undefined,
       description: typeof parsed.description === 'string' ? parsed.description : undefined,
+      model: typeof parsed.model === 'string' ? parsed.model : undefined,
     };
   } catch {
     return {};
@@ -1783,6 +1786,52 @@ export class ClaudeSessionsProvider implements IProviderSessions {
         .map(truncateSubagentActivity),
       activityCount: transcript.activity.length,
     };
+  }
+
+  /**
+   * Lists the subagent runs recorded under one parent session.
+   *
+   * Used by the sidebar, which expands a session row to show the agents it
+   * spawned. Missing directories and sidecars are normal (old layouts, agents
+   * still starting), so nothing here throws.
+   */
+  async listSubagents(input: {
+    providerSessionId: string;
+    jsonlPath: string;
+  }): Promise<ProviderSessionSubagent[]> {
+    const subagentDirectory = path.join(
+      path.dirname(input.jsonlPath),
+      input.providerSessionId,
+      'subagents',
+    );
+
+    let entries: string[];
+    try {
+      entries = await fsp.readdir(subagentDirectory);
+    } catch {
+      return [];
+    }
+
+    const subagents = await Promise.all(entries
+      .filter((name) => name.startsWith('agent-') && name.endsWith('.jsonl'))
+      .map(async (name): Promise<ProviderSessionSubagent> => {
+        const transcriptPath = path.join(subagentDirectory, name);
+        const agentId = name.slice('agent-'.length, -'.jsonl'.length);
+        const meta = await readClaudeSubagentMeta(transcriptPath.replace(/\.jsonl$/, '.meta.json'));
+        let startedAt: string | undefined;
+        try {
+          startedAt = (await fsp.stat(transcriptPath)).mtime.toISOString();
+        } catch {
+          // A transcript can disappear between readdir and stat.
+        }
+        return {
+          agentId,
+          ...meta,
+          ...(startedAt ? { startedAt } : {}),
+        };
+      }));
+
+    return subagents.sort((left, right) => (right.startedAt ?? '').localeCompare(left.startedAt ?? ''));
   }
 
   /**

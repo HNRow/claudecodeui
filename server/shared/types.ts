@@ -196,6 +196,24 @@ export type ProviderCurrentActiveModel = {
 };
 
 /**
+ * One subagent run recorded under a provider session.
+ *
+ * Claude writes each spawned agent to
+ * `<projectDir>/<providerSessionId>/subagents/agent-<agentId>.jsonl` plus a
+ * `.meta.json` sidecar; the sidebar lists these under their parent session.
+ * `agentId` is the provider-native id, and every other field is optional
+ * because a transcript can exist without its sidecar.
+ */
+export type ProviderSessionSubagent = {
+  agentId: string;
+  agentType?: string;
+  description?: string;
+  model?: string;
+  /** File mtime, ISO-encoded; used only for ordering. */
+  startedAt?: string;
+};
+
+/**
  * Where a resolved session model came from.
  *
  * `session` means the app has recorded a model for this session (the user
@@ -1641,7 +1659,13 @@ export type FileTreeServices = {
   }>;
   listProjectFiles(
     projectId: string,
-    options?: { respectGitignore: boolean },
+    options?: {
+      respectGitignore: boolean;
+      /** Directory relative to the project root; omitted lists the root. */
+      relativePath?: string;
+      /** Levels to return below `relativePath` (0 = direct entries only; default 10 when omitted). */
+      depth?: number;
+    },
   ): Promise<FileTreeNode[]>;
   createEntry(input: {
     projectId: string;

@@ -15,6 +15,7 @@ import type {
   FetchHistoryResult,
   LLMProvider,
   NormalizedMessage,
+  ProviderSessionSubagent,
   WorkflowAgentActivity,
 } from '@/shared/types.js';
 import { AppError, sliceTailPage } from '@/shared/utils.js';
@@ -526,6 +527,32 @@ export const sessionsService = {
 
     const sessions = providerRegistry.resolveProvider(session.provider as LLMProvider).sessions;
     await sessions.rewindSession?.(sessionId, keepThroughId);
+  },
+
+  /**
+   * Subagent runs recorded under one app session, newest first.
+   *
+   * Used by the sidebar to expand a session row. Providers without subagent
+   * transcripts (or sessions with no transcript yet) return an empty list.
+   */
+  async listSessionSubagents(sessionId: string): Promise<ProviderSessionSubagent[]> {
+    const session = sessionsDb.getSessionById(sessionId);
+    const providerSessionId = session?.provider_session_id;
+    if (!session || !providerSessionId || !session.jsonl_path) {
+      return [];
+    }
+
+    const providerSessions = providerRegistry
+      .resolveProvider(session.provider as LLMProvider)
+      .sessions;
+    if (!providerSessions.listSubagents) {
+      return [];
+    }
+
+    return providerSessions.listSubagents({
+      providerSessionId,
+      jsonlPath: session.jsonl_path,
+    });
   },
 
   async fetchHistory(

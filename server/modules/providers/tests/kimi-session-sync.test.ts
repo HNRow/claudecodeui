@@ -18,6 +18,8 @@ type Fixture = {
     group?: string;
     state?: Record<string, unknown>;
     raw?: string;
+    /** Wire contents; defaults to a session that already holds a user turn. */
+    wire?: string;
   }) => Promise<string>;
 };
 
@@ -32,12 +34,12 @@ const createFixture = async (): Promise<Fixture> => {
     cleanup: async () => {
       await rm(root, { recursive: true, force: true });
     },
-    writeState: async ({ sessionId = SESSION_ID, group = 'wd_project_abc', state, raw }) => {
+    writeState: async ({ sessionId = SESSION_ID, group = 'wd_project_abc', state, raw, wire }) => {
       const sessionDirectory = path.join(home, 'sessions', group, sessionId);
       await mkdir(path.join(sessionDirectory, 'agents', 'main'), { recursive: true });
       await writeFile(
         path.join(sessionDirectory, 'agents', 'main', 'wire.jsonl'),
-        '{"type":"metadata"}\n',
+        wire ?? '{"type":"metadata"}\n{"type":"turn.prompt"}\n',
         'utf8',
       );
       const statePath = path.join(sessionDirectory, 'state.json');
@@ -126,6 +128,30 @@ test('malformed, archived, and non-state files are skipped without failing the s
       assert.equal(await synchronizer.synchronize(), 0);
       assert.equal(await synchronizer.synchronizeFile(brokenPath), null);
       assert.equal(await synchronizer.synchronizeFile('/tmp/not-a-kimi-session/other.json'), null);
+    });
+  } finally {
+    if (previousHome === undefined) delete process.env.KIMI_CODE_HOME;
+    else process.env.KIMI_CODE_HOME = previousHome;
+    await fixture.cleanup();
+  }
+});
+
+test('sessions without a user turn are not indexed', { concurrency: false }, async () => {
+  const fixture = await createFixture();
+  const previousHome = process.env.KIMI_CODE_HOME;
+  process.env.KIMI_CODE_HOME = fixture.home;
+  try {
+    // Kimi writes the directory as soon as the CLI starts; only metadata and
+    // profile events exist until a prompt is sent.
+    const statePath = await fixture.writeState({
+      wire: '{"type":"metadata"}\n{"type":"profile.bind"}\n',
+    });
+
+    await withIsolatedDatabase(async () => {
+      const synchronizer = new KimiSessionSynchronizer();
+      assert.equal(await synchronizer.synchronize(), 0);
+      assert.equal(await synchronizer.synchronizeFile(statePath), null);
+      assert.equal(sessionsDb.getSessionByProviderSessionId(SESSION_ID), null);
     });
   } finally {
     if (previousHome === undefined) delete process.env.KIMI_CODE_HOME;

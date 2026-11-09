@@ -89,7 +89,9 @@ router.get(
     const projectId = typeof req.params.projectId === 'string' ? req.params.projectId : '';
     const limit = parseNonNegativeIntQuery(req.query.limit, 'limit', 20);
     const offset = parseNonNegativeIntQuery(req.query.offset, 'offset', 0);
-    const sessionsPage = await getProjectSessionsPage(projectId, { limit, offset });
+    // `?origin=agent` lists the collapsed "Agent sessions" group.
+    const origin = req.query.origin === 'agent' ? 'agent' as const : undefined;
+    const sessionsPage = await getProjectSessionsPage(projectId, { limit, offset, origin });
     res.json(sessionsPage);
   }),
 );

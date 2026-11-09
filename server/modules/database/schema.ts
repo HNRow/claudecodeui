@@ -142,6 +142,10 @@ CREATE TABLE IF NOT EXISTS sessions (
     -- normally. Informational only: a fork is a fully independent provider
     -- session, and deleting the source does not affect it.
     forked_from_session_id TEXT,
+    -- 'agent' when the transcript was produced by an SDK-driven automation
+    -- (for example a plugin's background review) rather than a person; NULL
+    -- for normal sessions. The sidebar groups these under "Agent sessions".
+    origin TEXT DEFAULT NULL,
     isArchived BOOLEAN DEFAULT 0,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,

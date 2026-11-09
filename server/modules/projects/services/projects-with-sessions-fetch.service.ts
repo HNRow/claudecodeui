@@ -13,6 +13,8 @@ type SessionSummary = {
   summary: string;
   messageCount: number;
   lastActivity: string;
+  /** 'agent' for SDK-driven automation transcripts; null for normal sessions. */
+  origin: string | null;
 };
 
 type SessionRepositoryRow = {
@@ -21,6 +23,7 @@ type SessionRepositoryRow = {
   custom_name?: string | null;
   updated_at?: string | null;
   created_at?: string | null;
+  origin?: string | null;
 };
 
 export type ProjectListItem = {
@@ -56,6 +59,8 @@ type GetProjectsWithSessionsOptions = {
 type SessionPaginationOptions = {
   limit?: number;
   offset?: number;
+  /** `'agent'` lists only SDK-driven automation sessions; omitted lists normal chats. */
+  origin?: 'agent';
 };
 
 type ProjectSessionsPageResult = {
@@ -124,6 +129,7 @@ function mapSessionRowToSummary(row: SessionRepositoryRow): SessionSummary {
     summary: row.custom_name || '',
     messageCount: 0,
     lastActivity: row.updated_at ?? row.created_at ?? new Date().toISOString(),
+    origin: row.origin ?? null,
   };
 }
 
@@ -149,8 +155,9 @@ function readProjectSessionsPageByPath(
     projectPath,
     pagination.limit,
     pagination.offset,
+    options.origin,
   ) as SessionRepositoryRow[];
-  const total = sessionsDb.countSessionsByProjectPath(projectPath);
+  const total = sessionsDb.countSessionsByProjectPath(projectPath, options.origin);
 
   return {
     sessions: rows.map(mapSessionRowToSummary),

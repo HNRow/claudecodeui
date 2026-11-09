@@ -11,6 +11,7 @@ import type {
   ProviderSkillListOptions,
   ProviderAuthStatus,
   ProviderCurrentActiveModel,
+  ProviderSessionSubagent,
   ProviderModelsDefinition,
   ProviderMcpServer,
   ProviderSkillCreateInput,
@@ -233,6 +234,18 @@ export interface IProviderMcp {
 export interface IProviderSessions {
   normalizeMessage(raw: unknown, sessionId: string | null): NormalizedMessage[];
   fetchHistory(sessionId: string, options?: FetchHistoryOptions): Promise<FetchHistoryResult>;
+
+  /**
+   * Lists the subagent runs recorded under one provider session.
+   *
+   * Optional: providers without subagent transcripts omit it, and the sidebar
+   * then renders no expand control. Implementations must not throw for a
+   * session whose directory is missing; return an empty list instead.
+   */
+  listSubagents?(input: {
+    providerSessionId: string;
+    jsonlPath: string;
+  }): Promise<ProviderSessionSubagent[]>;
 
   /**
    * Resolves where a conversation must resume from so that the turn identified

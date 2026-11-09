@@ -53,7 +53,7 @@ export class KimiSessionSynchronizer implements IProviderSessionSynchronizer {
         }
       }
 
-      if (this.upsertSession(state, statePath)) {
+      if (await this.upsertSession(state, statePath)) {
         processed += 1;
       }
     }
@@ -77,7 +77,51 @@ export class KimiSessionSynchronizer implements IProviderSessionSynchronizer {
       return null;
     }
 
-    return this.upsertSession(state, resolvedPath) ?? null;
+    return (await this.upsertSession(state, resolvedPath)) ?? null;
+  }
+
+  /**
+   * True when the session's wire actually holds a user turn.
+   *
+   * Kimi creates a session directory (and its `state.json`) as soon as the CLI
+   * starts, so sessions that never received a prompt show up with only
+   * metadata/profile events. They are not conversations and must not reach the
+   * sidebar; the next sync imports the session once a prompt exists.
+   */
+  private async readWireSummary(
+    wirePath: string,
+  ): Promise<{ hasTurn: boolean; firstPrompt: string | null }> {
+    try {
+      const content = await readFile(wirePath, 'utf8');
+      const hasTurn = content.includes('"turn.prompt"') || content.includes('"llm.request"');
+      if (!hasTurn) {
+        return { hasTurn: false, firstPrompt: null };
+      }
+
+      // Kimi often leaves `state.json` untitled, so the first prompt is the
+      // only usable session name. Reading it here saves a second file pass.
+      for (const line of content.split('\n')) {
+        if (!line.includes('"turn.prompt"')) {
+          continue;
+        }
+        try {
+          const parsed = JSON.parse(line) as Record<string, unknown>;
+          const input = Array.isArray(parsed.input) ? parsed.input : [];
+          for (const part of input) {
+            const text = (part as { text?: unknown } | null)?.text;
+            if (typeof text === 'string' && text.trim()) {
+              return { hasTurn: true, firstPrompt: text.trim().slice(0, 80) };
+            }
+          }
+        } catch {
+          // A partial line is normal while Kimi is still streaming.
+        }
+      }
+
+      return { hasTurn: true, firstPrompt: null };
+    } catch {
+      return { hasTurn: false, firstPrompt: null };
+    }
   }
 
   /**
@@ -87,8 +131,14 @@ export class KimiSessionSynchronizer implements IProviderSessionSynchronizer {
    * binding Kimi's provider id to that pending row first keeps the watcher from
    * adding a second sidebar entry for the same conversation.
    */
-  private upsertSession(state: KimiSessionState, statePath: string): string | null {
+  private async upsertSession(state: KimiSessionState, statePath: string): Promise<string | null> {
     if (state.archived === true) {
+      return null;
+    }
+
+    const wirePath = path.join(path.dirname(statePath), 'agents', 'main', 'wire.jsonl');
+    const wire = await this.readWireSummary(wirePath);
+    if (!wire.hasTurn) {
       return null;
     }
 
@@ -110,11 +160,11 @@ export class KimiSessionSynchronizer implements IProviderSessionSynchronizer {
     const existingName = existingSession?.custom_name;
     const title = readOptionalString(state.title);
 
-    const nextName = existingName && existingName !== FALLBACK_TITLE
-      ? existingName
-      : title;
+    const existingNameIsPlaceholder = !existingName || existingName === FALLBACK_TITLE;
+    const nextName = existingNameIsPlaceholder
+      ? (title ?? wire.firstPrompt ?? undefined)
+      : existingName ?? undefined;
 
-    const jsonlPath = path.join(path.dirname(statePath), 'agents', 'main', 'wire.jsonl');
     return sessionsDb.createSession(
       sessionId,
       PROVIDER,
@@ -122,7 +172,7 @@ export class KimiSessionSynchronizer implements IProviderSessionSynchronizer {
       normalizeSessionName(nextName, FALLBACK_TITLE),
       normalizeProviderTimestamp(state.createdAt),
       normalizeProviderTimestamp(state.updatedAt ?? state.createdAt),
-      jsonlPath,
+      wirePath,
     );
   }
 }

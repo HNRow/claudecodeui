@@ -1180,6 +1180,17 @@ router.get(
   }),
 );
 
+/** Subagent runs recorded under one session, for the sidebar's expandable rows. */
+router.get(
+  '/sessions/:sessionId/subagents',
+  asyncHandler(async (req: Request, res: Response) => {
+    const sessionId = parseSessionId(req.params.sessionId);
+    res.json(createApiSuccessResponse({
+      subagents: await sessionsService.listSessionSubagents(sessionId),
+    }));
+  }),
+);
+
 /**
  * One workflow agent's timeline, read on demand when its row in the workflow
  * card is opened. History does not carry it: a run can spawn a dozen agents

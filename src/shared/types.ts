@@ -112,6 +112,16 @@ export type ProjectSession = {
   [key: string]: unknown;
 };
 
+/** One subagent run recorded under a provider session; the sidebar lists these under their parent row. */
+export type ProviderSessionSubagent = {
+  agentId: string;
+  agentType?: string;
+  description?: string;
+  model?: string;
+  /** File mtime, ISO-encoded; used only for ordering. */
+  startedAt?: string;
+};
+
 /** Pagination metadata returned alongside a project's session page. */
 type ProjectSessionMeta = {
   total?: number;

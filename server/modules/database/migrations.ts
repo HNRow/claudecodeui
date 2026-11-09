@@ -458,6 +458,17 @@ const addSessionEffortColumn = (db: Database): void => {
 };
 
 /**
+ * Adds the `origin` column that marks SDK-driven automation sessions.
+ *
+ * Existing rows stay NULL (treated as normal sessions); the synchronizer fills
+ * it on the next pass for transcripts that carry an SDK entrypoint.
+ */
+const addSessionOriginColumn = (db: Database): void => {
+  const columnNames = getTableInfo(db, 'sessions').map((column) => column.name);
+  addColumnToTableIfNotExists(db, 'sessions', columnNames, 'origin', 'TEXT DEFAULT NULL');
+};
+
+/**
  * Adds the reasoning-effort metadata columns to the custom-model library.
  *
  * Existing rows stay NULL on purpose: no effort levels were ever declared for
@@ -594,6 +605,7 @@ export const runMigrations = (db: Database) => {
     addProviderSessionIdMapping(db);
     addSessionModelColumn(db);
     addSessionEffortColumn(db);
+    addSessionOriginColumn(db);
     addForkedFromSessionIdColumn(db);
     ensureProjectsForSessionPaths(db);
     db.exec(SCHEDULED_MESSAGES_TABLE_SCHEMA_SQL);

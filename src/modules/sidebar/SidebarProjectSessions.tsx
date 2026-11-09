@@ -1,6 +1,8 @@
-import { CheckSquare, Trash2 } from 'lucide-react';
+import { useState } from 'react';
+import { CheckSquare, ChevronRight, Trash2 } from 'lucide-react';
 import type { TFunction } from 'i18next';
 
+import { api } from '@/shared/api';
 import { Button } from '@/shared/ui';
 import { cn } from '@/shared/utils';
 import type { LLMProvider, Project, ProjectSession, SessionWithProvider, SidebarSessionSelection } from '@/shared/types';
@@ -92,6 +94,12 @@ export default function SidebarProjectSessions({
   t,
 }: SidebarProjectSessionsProps) {
   const isCompact = useCompactSidebar();
+  // SDK-driven automation sessions are excluded from the server's conversation
+  // page. They live in a collapsed group that loads only when opened. The
+  // state sits above the `isExpanded` early return so hook order is stable.
+  const [agentSessionsOpen, setAgentSessionsOpen] = useState(false);
+  const [agentSessions, setAgentSessions] = useState<SessionWithProvider[] | null>(null);
+  const [agentSessionsLoading, setAgentSessionsLoading] = useState(false);
 
   if (!isExpanded) {
     return null;
@@ -99,6 +107,61 @@ export default function SidebarProjectSessions({
 
   const hasSessions = sessions.length > 0;
   const isSelecting = selectedSessionIds !== null;
+  const toggleAgentSessions = async () => {
+    if (!agentSessionsOpen && agentSessions === null && !agentSessionsLoading) {
+      setAgentSessionsLoading(true);
+      try {
+        const response = await api.projectSessions(project.projectId, {
+          origin: 'agent',
+          limit: 50,
+          offset: 0,
+        });
+        const page = response.ok
+          ? (await response.json() as { sessions?: Array<Record<string, unknown>> })
+          : { sessions: [] };
+        setAgentSessions((page.sessions ?? []).map((row) => ({
+          ...row,
+          name: typeof row.summary === 'string' ? row.summary : undefined,
+          __provider: (row.provider as LLMProvider | undefined) ?? 'claude',
+          __projectId: project.projectId,
+        })) as SessionWithProvider[]);
+      } catch {
+        setAgentSessions([]);
+      } finally {
+        setAgentSessionsLoading(false);
+      }
+    }
+
+    setAgentSessionsOpen((open) => !open);
+  };
+
+  const renderSession = (session: SessionWithProvider) => (
+    <SidebarSessionItem
+      key={session.id}
+      project={project}
+      session={session}
+      selectedSession={selectedSession}
+      isProcessing={isSessionRunning(session)}
+      hasBackgroundWork={backgroundSessionIds.has(session.id)}
+      needsAttention={attentionSessionIds.has(session.id)}
+      currentTime={currentTime}
+      onRenameDraftChange={onRenameDraftChange}
+      isEditing={session.id === sessionRenameId}
+      renameDraft={session.id === sessionRenameId ? sessionRenameDraft : ''}
+      onStartEditingSession={onStartEditingSession}
+      onCancelEditingSession={onCancelEditingSession}
+      onSaveEditingSession={onSaveEditingSession}
+      onProjectSelect={onProjectSelect}
+      onSessionSelect={onSessionSelect}
+      onArchiveSession={onArchiveSession}
+      onDeleteSession={onDeleteSession}
+      onForkSession={onForkSession}
+      isSelecting={isSelecting}
+      isChecked={checkedSessionIds.has(session.id)}
+      onToggleSessionSelected={onToggleSessionSelected}
+      t={t}
+    />
+  );
   // A session with a response in flight cannot be deleted — the same rule the
   // row's options menu applies — so it is not selectable either.
   const isSessionRunning = (session: SessionWithProvider) =>
@@ -193,33 +256,26 @@ export default function SidebarProjectSessions({
         </div>
       ) : (
         <>
-          {sessions.map((session) => (
-            <SidebarSessionItem
-              key={session.id}
-              project={project}
-              session={session}
-              selectedSession={selectedSession}
-              isProcessing={isSessionRunning(session)}
-              hasBackgroundWork={backgroundSessionIds.has(session.id)}
-              needsAttention={attentionSessionIds.has(session.id)}
-              currentTime={currentTime}
-              onRenameDraftChange={onRenameDraftChange}
-              isEditing={session.id === sessionRenameId}
-              renameDraft={session.id === sessionRenameId ? sessionRenameDraft : ''}
-              onStartEditingSession={onStartEditingSession}
-              onCancelEditingSession={onCancelEditingSession}
-              onSaveEditingSession={onSaveEditingSession}
-              onProjectSelect={onProjectSelect}
-              onSessionSelect={onSessionSelect}
-              onArchiveSession={onArchiveSession}
-              onDeleteSession={onDeleteSession}
-              onForkSession={onForkSession}
-              isSelecting={isSelecting}
-              isChecked={checkedSessionIds.has(session.id)}
-              onToggleSessionSelected={onToggleSessionSelected}
-              t={t}
-            />
-          ))}
+          {sessions.map((session) => renderSession(session))}
+
+          <button
+            type="button"
+            onClick={toggleAgentSessions}
+            aria-expanded={agentSessionsOpen}
+            className="mt-1 flex w-full items-center gap-1 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground transition-colors hover:text-foreground"
+          >
+            <ChevronRight className={cn('h-3 w-3 transition-transform', agentSessionsOpen && 'rotate-90')} />
+            {agentSessions
+              ? t('sessions.agentSessions', { count: agentSessions.length })
+              : t('sessions.agentSessionsLabel', { defaultValue: 'Agent sessions' })}
+          </button>
+
+          {agentSessionsOpen && agentSessionsLoading && (
+            <p className="px-3 py-1 text-[11px] text-muted-foreground">
+              {t('sessions.loadingSubagents', { defaultValue: 'Loading…' })}
+            </p>
+          )}
+          {agentSessionsOpen && !agentSessionsLoading && agentSessions?.map((session) => renderSession(session))}
 
           {hasMoreSessions && (
             <Button

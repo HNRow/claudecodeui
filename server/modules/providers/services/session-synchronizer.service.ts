@@ -1,7 +1,7 @@
 import path from 'node:path';
 import { access } from 'node:fs/promises';
 
-import { scanStateDb, sessionsDb } from '@/modules/database/index.js';
+import { appConfigDb, scanStateDb, sessionsDb } from '@/modules/database/index.js';
 import { providerRegistry } from '@/modules/providers/provider.registry.js';
 import type { LLMProvider } from '@/shared/types.js';
 
@@ -76,8 +76,16 @@ let inFlightSynchronization: Promise<SessionSynchronizeResult> | null = null;
 /**
  * Runs all provider synchronizers and updates scan_state.last_scanned_at.
  */
+/** Set once the sessions.origin column has been filled from existing transcripts. */
+const ORIGIN_BACKFILL_CONFIG_KEY = 'sessions_origin_backfill_done';
+
 async function runSessionSynchronization(): Promise<SessionSynchronizeResult> {
   const lastScanAt = scanStateDb.getLastScannedAt();
+  // Existing transcripts predate the origin column, and the incremental scan
+  // would skip them. One full pass after the upgrade tags them for the
+  // sidebar's "Agent sessions" group.
+  const needsOriginBackfill = appConfigDb.get(ORIGIN_BACKFILL_CONFIG_KEY) !== '1';
+  const effectiveSince = needsOriginBackfill ? undefined : (lastScanAt ?? undefined);
   const scanBoundary = new Date();
   const processedByProvider: Record<LLMProvider, number> = {
     claude: 0,
@@ -91,7 +99,7 @@ async function runSessionSynchronization(): Promise<SessionSynchronizeResult> {
   const results = await Promise.allSettled(
     providerRegistry.listProviders().map(async (provider) => ({
       provider: provider.id,
-      processed: await provider.sessionSynchronizer.synchronize(lastScanAt ?? undefined),
+      processed: await provider.sessionSynchronizer.synchronize(effectiveSince),
     }))
   );
 
@@ -111,6 +119,9 @@ async function runSessionSynchronization(): Promise<SessionSynchronizeResult> {
 
   if (failures.length === 0) {
     scanStateDb.updateLastScannedAt(scanBoundary);
+    if (needsOriginBackfill) {
+      appConfigDb.set(ORIGIN_BACKFILL_CONFIG_KEY, '1');
+    }
   } else {
     console.warn(
       `[Sessions] Skipping scan_state cursor advance because ${failures.length} provider sync(s) failed.`,

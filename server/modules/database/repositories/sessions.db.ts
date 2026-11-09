@@ -15,6 +15,8 @@ type SessionRow = {
   effort: string | null;
   /** The app session this one was branched from; NULL unless it is a fork. */
   forked_from_session_id: string | null;
+  /** 'agent' for SDK-driven automation transcripts; NULL for normal sessions. */
+  origin: string | null;
   isArchived: number;
   created_at: string;
   updated_at: string;
@@ -26,7 +28,7 @@ type RecentSessionsPage = {
 };
 
 const SESSION_ROW_COLUMNS =
-  'session_id, provider, provider_session_id, project_path, jsonl_path, custom_name, model, effort, forked_from_session_id, isArchived, created_at, updated_at';
+  'session_id, provider, provider_session_id, project_path, jsonl_path, custom_name, model, effort, forked_from_session_id, origin, isArchived, created_at, updated_at';
 
 const SQLITE_UTC_TIMESTAMP_REGEX = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/;
 
@@ -87,7 +89,8 @@ export const sessionsDb = {
     customName?: string,
     createdAt?: string,
     updatedAt?: string,
-    jsonlPath?: string | null
+    jsonlPath?: string | null,
+    origin?: 'agent' | null
   ): string {
     const db = getConnection();
     const createdAtValue = normalizeTimestamp(createdAt);
@@ -113,6 +116,7 @@ export const sessionsDb = {
            updated_at = COALESCE(?, CURRENT_TIMESTAMP),
            project_path = ?,
            jsonl_path = ?,
+           origin = COALESCE(?, origin),
            isArchived = CASE WHEN ? IS NULL OR julianday(?) > julianday(updated_at) THEN 0 ELSE isArchived END,
            custom_name = CASE
              WHEN session_id <> provider_session_id AND custom_name IS NOT NULL THEN custom_name
@@ -124,6 +128,7 @@ export const sessionsDb = {
         updatedAtValue,
         normalizedProjectPath,
         jsonlPath ?? null,
+        origin ?? null,
         updatedAtValue,
         updatedAtValue,
         customName ?? null,
@@ -137,14 +142,15 @@ export const sessionsDb = {
     // keyed by the provider-native id for both columns. The ON CONFLICT path
     // covers legacy rows that predate the provider_session_id mapping.
     db.prepare(
-      `INSERT INTO sessions (session_id, provider, provider_session_id, custom_name, project_path, jsonl_path, isArchived, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, 0, COALESCE(?, CURRENT_TIMESTAMP), COALESCE(?, CURRENT_TIMESTAMP))
+      `INSERT INTO sessions (session_id, provider, provider_session_id, custom_name, project_path, jsonl_path, origin, isArchived, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 0, COALESCE(?, CURRENT_TIMESTAMP), COALESCE(?, CURRENT_TIMESTAMP))
        ON CONFLICT(session_id) DO UPDATE SET
          provider = excluded.provider,
          provider_session_id = excluded.provider_session_id,
          updated_at = excluded.updated_at,
          project_path = excluded.project_path,
          jsonl_path = excluded.jsonl_path,
+         origin = COALESCE(excluded.origin, sessions.origin),
          isArchived = CASE WHEN ? IS NULL OR julianday(excluded.updated_at) > julianday(sessions.updated_at) THEN 0 ELSE sessions.isArchived END,
          custom_name = CASE
            WHEN sessions.session_id <> sessions.provider_session_id AND sessions.custom_name IS NOT NULL
@@ -158,6 +164,7 @@ export const sessionsDb = {
       customName ?? null,
       normalizedProjectPath,
       jsonlPath ?? null,
+      origin ?? null,
       createdAtValue,
       updatedAtValue,
       updatedAtValue
@@ -545,9 +552,12 @@ export const sessionsDb = {
    */
   getRecentSessionsPage(limit: number, offset: number): RecentSessionsPage {
     const db = getConnection();
-    const visibilityClause = `
+    // Automation sessions stay out of the "Conversations" list; the sidebar
+  // lists them under each project's collapsed "Agent sessions" group instead.
+  const visibilityClause = `
       sessions.isArchived = 0
       AND (projects.isArchived IS NULL OR projects.isArchived = 0)
+      AND (sessions.origin IS NULL OR sessions.origin <> 'agent')
     `;
     const rows = db
       .prepare(
@@ -619,22 +629,39 @@ export const sessionsDb = {
       .prepare(
         `SELECT ${SESSION_ROW_COLUMNS}
          FROM sessions
-         WHERE project_path = ?`
+         WHERE project_path = ?
+           AND (origin IS NULL OR origin <> 'agent')`
       )
       .all(normalizedProjectPath) as SessionRow[];
 
     return normalizeSessionRows(rows);
   },
 
-  getSessionsByProjectPathPage(projectPath: string, limit: number, offset: number): SessionRow[] {
+  /**
+   * One page of a project's sessions.
+   *
+   * `origin` selects the slice: `'agent'` returns only SDK-driven automation
+   * sessions, anything else returns the normal conversations (agent rows are
+   * listed separately so they do not consume the conversation page budget).
+   */
+  getSessionsByProjectPathPage(
+    projectPath: string,
+    limit: number,
+    offset: number,
+    origin?: 'agent',
+  ): SessionRow[] {
     const db = getConnection();
     const normalizedProjectPath = normalizeProjectPath(projectPath);
+    const originClause = origin === 'agent'
+      ? "AND origin = 'agent'"
+      : "AND (origin IS NULL OR origin <> 'agent')";
     const rows = db
       .prepare(
         `SELECT ${SESSION_ROW_COLUMNS}
          FROM sessions
          WHERE project_path = ?
            AND isArchived = 0
+           ${originClause}
          ORDER BY datetime(COALESCE(updated_at, created_at)) DESC, session_id DESC
          LIMIT ? OFFSET ?`
       )
@@ -643,15 +670,19 @@ export const sessionsDb = {
     return normalizeSessionRows(rows);
   },
 
-  countSessionsByProjectPath(projectPath: string): number {
+  countSessionsByProjectPath(projectPath: string, origin?: 'agent'): number {
     const db = getConnection();
     const normalizedProjectPath = normalizeProjectPath(projectPath);
+    const originClause = origin === 'agent'
+      ? "AND origin = 'agent'"
+      : "AND (origin IS NULL OR origin <> 'agent')";
     const row = db
       .prepare(
         `SELECT COUNT(*) AS count
          FROM sessions
          WHERE project_path = ?
-           AND isArchived = 0`
+           AND isArchived = 0
+           ${originClause}`
       )
       .get(normalizedProjectPath) as { count: number } | undefined;
 
