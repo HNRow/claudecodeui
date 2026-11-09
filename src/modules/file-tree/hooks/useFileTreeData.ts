@@ -8,7 +8,26 @@ type UseFileTreeDataResult = {
   loading: boolean;
   error: string | null;
   refreshFiles: () => void;
+  /** Loads one directory's children on first expand; paths are the absolute node paths. */
+  loadDirectory: (directoryPath: string) => Promise<void>;
 };
+
+/** Replaces the children of the node whose `path` matches, leaving the rest of the tree intact. */
+function replaceChildren(
+  nodes: FileTreeNode[],
+  targetPath: string,
+  children: FileTreeNode[],
+): FileTreeNode[] {
+  return nodes.map((node) => {
+    if (node.path === targetPath) {
+      return { ...node, children };
+    }
+    if (!node.children?.length) {
+      return node;
+    }
+    return { ...node, children: replaceChildren(node.children, targetPath, children) };
+  });
+}
 
 const DEFAULT_LOAD_ERROR = 'Unable to load the file tree for this project.';
 
@@ -65,7 +84,12 @@ export function useFileTreeData(selectedProject: Project | null): UseFileTreeDat
         setError(null);
       }
       try {
-        const response = await api.getFiles(projectId, { signal: abortControllerRef.current!.signal });
+        // The root only asks for its own level; each directory is loaded on
+        // expand, so a project with tens of thousands of files stays cheap.
+        const response = await api.getFiles(projectId, {
+          depth: 0,
+          signal: abortControllerRef.current!.signal,
+        });
 
         if (!response.ok) {
           const errorText = await response.text();
@@ -106,10 +130,27 @@ export function useFileTreeData(selectedProject: Project | null): UseFileTreeDat
     };
   }, [selectedProject?.projectId, refreshKey]);
 
+  const loadDirectory = useCallback(async (directoryPath: string): Promise<void> => {
+    const projectId = selectedProject?.projectId;
+    if (!projectId) {
+      return;
+    }
+
+    const response = await api.getFiles(projectId, { path: directoryPath, depth: 0 });
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(readResponseErrorMessage(errorText) ?? DEFAULT_LOAD_ERROR);
+    }
+
+    const children = (await response.json()) as FileTreeNode[];
+    setFiles((current) => replaceChildren(current, directoryPath, children));
+  }, [selectedProject?.projectId]);
+
   return {
     files,
     loading,
     error,
     refreshFiles,
+    loadDirectory,
   };
 }

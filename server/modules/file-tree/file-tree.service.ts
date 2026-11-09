@@ -527,7 +527,29 @@ export function createFileTreeService(dependencies: FileTreeServiceDependencies)
         }
       }
 
-      return buildFileTree(projectRoot, 10, 0, includeEntry);
+      // Lazily loaded trees ask for one directory at a time; a missing
+      // relativePath keeps the original whole-tree call working.
+      const targetPath = options?.relativePath
+        ? resolvePathInsideProject(projectRoot, options.relativePath)
+        : projectRoot;
+      // Only a requested subdirectory needs the extra check; the project root
+      // was already verified above, and older callers never pass a path.
+      if (options?.relativePath) {
+        try {
+          const stats = await fileSystem.stat(targetPath);
+          if (!stats.isDirectory()) {
+            throw createFileTreeError('Path is not a directory', 400, 'FILE_TREE_NOT_A_DIRECTORY');
+          }
+        } catch (error) {
+          if (error instanceof AppError) throw error;
+          throw createFileTreeError('Directory not found', 404, 'FILE_TREE_NOT_FOUND');
+        }
+      }
+
+      // Omitting `depth` keeps the original whole-tree behavior for older callers;
+      // depth 0 returns only the requested directory's own entries.
+      const depth = Math.min(Math.max(Math.trunc(options?.depth ?? 10), 0), 10);
+      return buildFileTree(targetPath, depth, 0, includeEntry);
     },
 
     async createEntry(input) {

@@ -575,3 +575,52 @@ test('a file in another folder of the workspace can be read, but never written t
     await fsPromises.rm(outsideDirectory, { recursive: true, force: true });
   }
 });
+
+test('listProjectFiles can load one directory at a time for lazy trees', async () => {
+  const projectRoot = path.resolve('file-tree-lazy-project');
+  const sourceDirectory = path.join(projectRoot, 'src');
+  const nestedDirectory = path.join(sourceDirectory, 'components');
+
+  const fileSystem = createFakeFileSystem({
+    access: async () => undefined,
+    stat: async (candidatePath) => {
+      if (candidatePath === sourceDirectory || candidatePath === nestedDirectory) {
+        return createStats(true, 0o755);
+      }
+      throw Object.assign(new Error('missing'), { code: 'ENOENT' });
+    },
+    readTextFile: async () => {
+      throw Object.assign(new Error('missing'), { code: 'ENOENT' });
+    },
+    openDirectory: createDirectoryReader((directoryPath) => {
+      if (directoryPath === projectRoot) {
+        return [createDirectoryEntry('src', true), createDirectoryEntry('README.md', false)];
+      }
+      if (directoryPath === sourceDirectory) {
+        return [createDirectoryEntry('components', true), createDirectoryEntry('index.ts', false)];
+      }
+      if (directoryPath === nestedDirectory) {
+        return [createDirectoryEntry('Button.tsx', false)];
+      }
+      return [];
+    }),
+    lstat: async (candidatePath) => createStats(
+      candidatePath === sourceDirectory || candidatePath === nestedDirectory,
+      0o644,
+    ),
+  });
+  const service = createFileTreeService(createDependencies(fileSystem, projectRoot));
+
+  const root = await service.listProjectFiles('project-1', { respectGitignore: true, depth: 0 });
+  assert.deepEqual(root.map((entry) => entry.name), ['src', 'README.md']);
+  // Only the requested level is materialized; children arrive on expand.
+  assert.equal(root[0]?.children, undefined);
+
+  const children = await service.listProjectFiles('project-1', {
+    respectGitignore: true,
+    relativePath: sourceDirectory,
+    depth: 0,
+  });
+  assert.deepEqual(children.map((entry) => entry.name), ['components', 'index.ts']);
+  assert.equal(children[0]?.children, undefined);
+});

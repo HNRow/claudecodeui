@@ -31,6 +31,20 @@ type FileTreeProps = {
   revealDirectory?: DirectoryRevealRequest | null;
 };
 
+/** Finds a node by its absolute path in the lazily loaded tree. */
+function findNodeByPath(nodes: FileTreeNode[], targetPath: string): FileTreeNode | null {
+  for (const node of nodes) {
+    if (node.path === targetPath) {
+      return node;
+    }
+    const found = node.children ? findNodeByPath(node.children, targetPath) : null;
+    if (found) {
+      return found;
+    }
+  }
+  return null;
+}
+
 /** Exported through the file-tree barrel; the project-workspace module renders it as the Files sidebar tab. */
 export default function FileTree({ selectedProject, onFileOpen, revealDirectory }: FileTreeProps) {
   const { t } = useTranslation();
@@ -52,13 +66,26 @@ export default function FileTree({ selectedProject, onFileOpen, revealDirectory 
     }
   }, [toast]);
 
-  const { files, loading, error, refreshFiles } = useFileTreeData(selectedProject);
+  const { files, loading, error, refreshFiles, loadDirectory } = useFileTreeData(selectedProject);
   const { viewMode, changeViewMode } = useFileTreeViewMode();
   const { expandedDirs, toggleDirectory, expandDirectories, collapseAll } = useExpandedDirectories();
   const { searchQuery, setSearchQuery, filteredFiles } = useFileTreeSearch({
     files,
     expandDirectories,
   });
+
+  // A refresh reloads only the root level, so already-open directories ask
+  // for their children again instead of rendering as empty folders.
+  useEffect(() => {
+    for (const directoryPath of expandedDirs) {
+      const node = findNodeByPath(files, directoryPath);
+      if (node?.type === 'directory' && !node.children) {
+        void loadDirectory(directoryPath).catch(() => {
+          // The row stays collapsed; the next expand retries.
+        });
+      }
+    }
+  }, [expandedDirs, files, loadDirectory]);
 
   // The reveal request already served, so a later tree refresh does not fold
   // the folders open again over a collapse the user has since made.
@@ -143,7 +170,14 @@ export default function FileTree({ selectedProject, onFileOpen, revealDirectory 
   const handleItemClick = useCallback(
     (item: FileTreeNode) => {
       if (item.type === 'directory') {
+        const willExpand = !expandedDirs.has(item.path);
         toggleDirectory(item.path);
+        // Lazy tree: a directory's children arrive on its first expand.
+        if (willExpand && !item.children) {
+          void loadDirectory(item.path).catch((loadError: unknown) => {
+            showToast(loadError instanceof Error ? loadError.message : 'Unable to load files', 'error');
+          });
+        }
         return;
       }
 
@@ -161,7 +195,7 @@ export default function FileTree({ selectedProject, onFileOpen, revealDirectory 
 
       onFileOpen?.(item.path);
     },
-    [onFileOpen, selectedProject, toggleDirectory],
+    [expandedDirs, loadDirectory, onFileOpen, selectedProject, showToast, toggleDirectory],
   );
 
   const formatRelativeTimeLabel = useCallback(

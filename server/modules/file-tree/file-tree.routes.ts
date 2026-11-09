@@ -162,8 +162,16 @@ export function createFileTreeRouter(
   }, logger));
 
   router.get('/projects/:projectId/files', createRouteHandler(async (request, response) => {
+    // `path` + `depth` drive lazy loading: the sidebar asks for one directory
+    // at a time, so a 70k-file project never has to fit under the entry cap.
+    const relativePath = readOptionalString(request.query.path) ?? undefined;
+    const rawDepthValue = readOptionalString(request.query.depth);
+    const rawDepth = rawDepthValue === null ? Number.NaN : Number(rawDepthValue);
+    const depth = Number.isFinite(rawDepth) && rawDepth >= 0 ? rawDepth : undefined;
     response.json(await services.listProjectFiles(readProjectId(request), {
       respectGitignore: request.query.respectGitignore === 'true',
+      ...(relativePath ? { relativePath } : {}),
+      ...(depth ? { depth } : {}),
     }));
   }, logger));
 

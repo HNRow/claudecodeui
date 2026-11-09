@@ -223,11 +223,11 @@ export const api = {
   archivedProjects: () => get('/api/projects/archived'),
   projectSessions: (
     projectId: string,
-    { limit = 20, offset = 0 }: { limit?: number; offset?: number } = {},
+    { limit = 20, offset = 0, origin }: { limit?: number; offset?: number; origin?: 'agent' } = {},
     options: ApiRequestOptions = {},
   ) =>
     get(
-      `/api/projects/${encodeURIComponent(projectId)}/sessions${query({ limit, offset })}`,
+      `/api/projects/${encodeURIComponent(projectId)}/sessions${query({ limit, offset, origin })}`,
       options,
     ),
   projectTaskmaster: (projectId: string) =>
@@ -281,6 +281,9 @@ export const api = {
     get(`/api/providers/sessions/recent${query({ limit, offset })}`),
   providerSessionId: (sessionId: string) =>
     get(`/api/providers/sessions/${encodeURIComponent(sessionId)}/provider-id`),
+  /** Subagent runs recorded under one session (Claude only; others return an empty list). */
+  sessionSubagents: (sessionId: string) =>
+    get(`/api/providers/sessions/${encodeURIComponent(sessionId)}/subagents`),
   restoreSession: (sessionId: string) => post(`/api/providers/sessions/${sessionId}/restore`),
   // Creates an independent session holding this one's conversation up to
   // `upToAnchorId` (all of it when omitted). The source is left untouched.
@@ -311,8 +314,20 @@ export const api = {
     get(fileContentPath(projectId, filePath), options),
   saveFile: (projectId: string, filePath: string, content: string) =>
     put(`/api/file-tree/projects/${projectId}/file`, { filePath, content }),
-  getFiles: (projectId: string, options: ApiRequestOptions = {}) =>
-    get(`/api/file-tree/projects/${projectId}/files${query({ respectGitignore: true })}`, options),
+  getFiles: (
+    projectId: string,
+    options: ApiRequestOptions & { path?: string; depth?: number } = {},
+  ) => {
+    const { path: relativePath, depth, ...requestOptions } = options;
+    return get(
+      `/api/file-tree/projects/${projectId}/files${query({
+        respectGitignore: true,
+        path: relativePath,
+        depth,
+      })}`,
+      requestOptions,
+    );
+  },
 
   // File operations
   createFile: (
