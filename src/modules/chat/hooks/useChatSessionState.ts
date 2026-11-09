@@ -417,6 +417,13 @@ export function useChatSessionState({
   }, [activeSessionId, pendingUserMessage, sessionStore]);
 
   const storeMessages = activeSessionId ? sessionStore.getMessages(activeSessionId) : NO_MESSAGES;
+  // Streaming rewrites the last row in place, so `chatMessages.length` stays
+  // put while its text grows. The follow effect below also watches this
+  // reference, which the store replaces on every append, so the pane keeps up
+  // with streamed output instead of waiting for the next message row.
+  const lastStoreMessage = storeMessages.length > 0
+    ? storeMessages[storeMessages.length - 1]
+    : null;
   const sideQuestions = useSideQuestions(activeSessionId);
 
   const chatMessages = useMemo(() => {
@@ -463,6 +470,16 @@ export function useChatSessionState({
     const container = scrollContainerRef.current;
     if (!container) return;
     container.scrollTop = container.scrollHeight;
+  }, []);
+
+  /** Throttles the streaming follow to one scroll per 50 ms. */
+  const followScrollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => () => {
+    if (followScrollTimerRef.current !== null) {
+      clearTimeout(followScrollTimerRef.current);
+      followScrollTimerRef.current = null;
+    }
   }, []);
 
   const scrollToBottomAndReset = useCallback(() => {
@@ -1018,14 +1035,15 @@ export function useChatSessionState({
     if (isLoadingMoreRef.current || isLoadingMoreMessages || pendingScrollRestoreRef.current) return;
     if (searchScrollActiveRef.current) return;
 
-    if (!isUserScrolledUp) {
-      setTimeout(() => {
+    if (!isUserScrolledUp && followScrollTimerRef.current === null) {
+      followScrollTimerRef.current = setTimeout(() => {
+        followScrollTimerRef.current = null;
         if (!isUserScrolledUpRef.current) {
           scrollToBottom();
         }
       }, 50);
     }
-  }, [chatMessages.length, isActive, isLoadingMoreMessages, isUserScrolledUp, scrollToBottom]);
+  }, [chatMessages.length, lastStoreMessage, isActive, isLoadingMoreMessages, isUserScrolledUp, scrollToBottom]);
 
   useEffect(() => {
     const container = scrollContainerRef.current;

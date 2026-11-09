@@ -42,11 +42,12 @@ written from five places coordinated by refs and timers rather than by one owner
    the state so a timer armed 50 ms or 200 ms ago can ask whether the user has scrolled
    away since. Adding a timed scroll without that check reintroduces the bug
    `transcriptScrollOwnership.test.tsx` exists to catch.
-6. **The follow effect re-runs on three things, not one.** Its deps are
-   `chatMessages.length`, `isUserScrolledUp` and `isLoadingMoreMessages`. So a new *row*
-   re-follows; a streamed rewrite of an existing row does not; and the flag flipping back
-   to `false` also arms a scroll, which is what snaps you the last few pixels when you
-   scroll back down.
+6. **The follow effect re-runs on four things, not one.** Its deps are
+   `chatMessages.length`, `lastStoreMessage`, `isUserScrolledUp` and
+   `isLoadingMoreMessages`. A new *row* re-follows; a streamed rewrite re-follows because
+   the store replaces the last message object on every delta (throttled to one scroll per
+   50 ms); and the flag flipping back to `false` also arms a scroll, which is what snaps
+   you the last few pixels when you scroll back down.
 7. **A claim ref suppresses the other writers.** `pendingInitialScrollRef`,
    `pendingScrollRestoreRef`, `searchScrollActiveRef`, plus two latches at the top of the
    list, `topLoadLockRef` and `wasNearTopRef`. A session change clears or re-arms all five
