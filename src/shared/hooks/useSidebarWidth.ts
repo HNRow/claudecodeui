@@ -2,6 +2,8 @@ import { useCallback, useEffect, useState, useSyncExternalStore } from 'react';
 
 export const SIDEBAR_WIDTH_STORAGE_KEY = 'sidebar-width';
 export const SIDEBAR_WIDTH_DEFAULT = 288; // the previous fixed md:w-72
+/** Default for 768-1023 px viewports (phones unfolded, small tablets). */
+export const SIDEBAR_WIDTH_COMPACT_DEFAULT = 240;
 export const SIDEBAR_WIDTH_MIN = 220;
 export const SIDEBAR_WIDTH_MAX = 640;
 export const SIDEBAR_WIDTH_KEYBOARD_STEP = 16;
@@ -16,11 +18,13 @@ export const parseSidebarWidth = (raw: unknown): number => {
   return Number.isFinite(value) ? clampSidebarWidth(value) : SIDEBAR_WIDTH_DEFAULT;
 };
 
-const readStoredWidth = (): number => {
+/** Returns null when the user never picked a width, so the viewport default can apply. */
+const readStoredWidth = (): number | null => {
   try {
-    return parseSidebarWidth(window.localStorage.getItem(SIDEBAR_WIDTH_STORAGE_KEY));
+    const raw = window.localStorage.getItem(SIDEBAR_WIDTH_STORAGE_KEY);
+    return raw === null ? null : parseSidebarWidth(raw);
   } catch {
-    return SIDEBAR_WIDTH_DEFAULT;
+    return null;
   }
 };
 
@@ -57,8 +61,14 @@ export function useSidebarWidth(): {
   const width = Math.min(preferredWidth, viewportCeiling);
 
   // Read after mount so server-side rendering and hydration see the same value.
+  // Phones and foldables in their unfolded state (768-1023 px) get a narrower
+  // default: the fixed 288 px rail otherwise eats a third of the screen and
+  // squeezes the transcript.
   useEffect(() => {
-    setWidthState(readStoredWidth());
+    const stored = readStoredWidth();
+    setWidthState(
+      stored ?? (window.innerWidth < 1024 ? SIDEBAR_WIDTH_COMPACT_DEFAULT : SIDEBAR_WIDTH_DEFAULT),
+    );
   }, []);
 
   const setWidth = useCallback((value: number, persist = true) => {

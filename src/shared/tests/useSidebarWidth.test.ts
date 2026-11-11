@@ -4,6 +4,7 @@ import { act, renderHook } from '@testing-library/react';
 import { test, vi } from 'vitest';
 
 import {
+  SIDEBAR_WIDTH_COMPACT_DEFAULT,
   SIDEBAR_WIDTH_DEFAULT,
   SIDEBAR_WIDTH_MAX,
   SIDEBAR_WIDTH_MIN,
@@ -56,4 +57,17 @@ test('a stored width is restored, and a broken one falls back to the default', (
 
 test('the default width matches the previous fixed sidebar', () => {
   assert.equal(SIDEBAR_WIDTH_DEFAULT, 288); // md:w-72
+});
+
+test('an unfolded phone viewport starts from the narrower default', () => {
+  // 820 px is the unfolded inner screen of a foldable phone: the 288 px rail
+  // leaves too little room for the transcript.
+  localStorage.removeItem('sidebar-width');
+  vi.stubGlobal('innerWidth', 820);
+  try {
+    const { result } = renderHook(() => useSidebarWidth());
+    assert.equal(result.current.width, SIDEBAR_WIDTH_COMPACT_DEFAULT);
+  } finally {
+    vi.unstubAllGlobals();
+  }
 });
