@@ -493,6 +493,7 @@ function SidebarProjectItem({
         isExpanded={isExpanded}
         sessions={sessions}
         selectedSession={selectedSession}
+        onNewSession={onNewSession}
         initialSessionsLoaded={initialSessionsLoaded}
         hasMoreSessions={Boolean(project.sessionMeta?.hasMore)}
         isLoadingMoreSessions={isLoadingMoreSessions}

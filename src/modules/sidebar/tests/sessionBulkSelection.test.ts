@@ -118,7 +118,7 @@ const renderSessions = (overrides: ListOverrides = {}) =>
       onSessionSelect: noop,
       onArchiveSession: noop,
       onDeleteSession: noop,
-      onLoadMoreSessions: noop,
+      onLoadMoreSessions: noop,      onNewSession: noop,
       selectedSessionIds: null,
       onSetSessionSelection: noop,
       onToggleSessionSelected: noop,
