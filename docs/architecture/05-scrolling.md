@@ -37,7 +37,10 @@ written from five places coordinated by refs and timers rather than by one owner
 4. **The flag is only recomputed from an input event.** `handleScroll` runs on `scroll`,
    `wheel` and `touchmove`, and applies one test — `scrollHeight - scrollTop - clientHeight
    < 50`. Content that grows *below* the fold does not move `scrollTop`, emits no event, and
-   therefore leaves the flag stale.
+   therefore leaves the flag stale. A wheel with negative `deltaY` sets the flag
+   immediately, before the matching `scroll` is measured: a growing stream can still leave
+   the pane inside the 50 px window at that moment, and waiting for it would let the
+   follow drag the reader back down.
 5. **A deferred scroll must re-read intent at fire time.** `isUserScrolledUpRef` mirrors
    the state so a timer armed 50 ms or 200 ms ago can ask whether the user has scrolled
    away since. Adding a timed scroll without that check reintroduces the bug

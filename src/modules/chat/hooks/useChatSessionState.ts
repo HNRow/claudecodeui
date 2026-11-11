@@ -558,13 +558,24 @@ export function useChatSessionState({
     [hasMoreMessages, isActive, isLoadingMoreMessages, selectedProject, selectedSession, sessionStore],
   );
 
-  const handleScroll = useCallback(async () => {
+  const handleScroll = useCallback(async (event?: Event) => {
     if (!isActive) return;
     const container = scrollContainerRef.current;
     if (!container) return;
 
-    const nearBottom = isNearBottom();
-    setIsUserScrolledUp(!nearBottom);
+    // A wheel-up means the user wants to read above. Claim that intent
+    // immediately: by the time the matching `scroll` event is measured, the
+    // growing stream can still leave the pane within the near-bottom window,
+    // and the follow would drag the viewport back down a little.
+    const deltaY = (event as { deltaY?: unknown } | undefined)?.deltaY;
+    const scrollingUp = typeof deltaY === 'number' && deltaY < 0;
+    if (scrollingUp) {
+      isUserScrolledUpRef.current = true;
+      setIsUserScrolledUp(true);
+    } else {
+      const nearBottom = isNearBottom();
+      setIsUserScrolledUp(!nearBottom);
+    }
     scrollPositionRef.current = {
       height: container.scrollHeight,
       top: container.scrollTop,
@@ -618,6 +629,24 @@ export function useChatSessionState({
         container.scrollTop = top + Math.max(container.scrollHeight - height, 0);
       }
       pendingScrollRestoreRef.current = null;
+
+      // Lazy rows swap their placeholder for real content one frame later, so
+      // the anchor can drift after this paint. Re-measure once and correct,
+      // otherwise the first scroll after a prepend visibly jumps.
+      if (anchor?.isConnected && anchorOffset !== null) {
+        requestAnimationFrame(() => {
+          const pane = scrollContainerRef.current;
+          if (!pane || !anchor.isConnected) return;
+          const drift = (
+            anchor.getBoundingClientRect().top
+            - pane.getBoundingClientRect().top
+            - anchorOffset
+          );
+          if (Math.abs(drift) > 1) {
+            pane.scrollTop += drift;
+          }
+        });
+      }
       return;
     }
 
