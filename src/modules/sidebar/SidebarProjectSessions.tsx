@@ -262,7 +262,7 @@ export default function SidebarProjectSessions({
             type="button"
             onClick={toggleAgentSessions}
             aria-expanded={agentSessionsOpen}
-            className="mt-1 flex w-full items-center gap-1 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground transition-colors hover:text-foreground"
+            className="mt-1 flex w-full items-center gap-1 px-3 py-1 text-[10px] font-semibold tracking-[0.12em] text-muted-foreground transition-colors hover:text-foreground"
           >
             <ChevronRight className={cn('h-3 w-3 transition-transform', agentSessionsOpen && 'rotate-90')} />
             {agentSessions
