@@ -54,7 +54,7 @@ export default function QuickSettingsHandle({
       onClick={onClick}
       onMouseDown={onMouseDown}
       onTouchStart={onTouchStart}
-      className={`fixed ${placementClass} z-50 ${transitionClass} border bg-white dark:bg-gray-800 ${borderClass} rounded-l-md p-2 shadow-lg transition-colors hover:bg-gray-100 dark:hover:bg-gray-700 ${cursorClass} touch-none`}
+      className={`fixed ${placementClass} z-50 ${transitionClass} flex min-h-11 min-w-11 items-center justify-center border bg-white dark:bg-gray-800 ${borderClass} rounded-l-md p-2 shadow-lg transition-colors hover:bg-gray-100 dark:hover:bg-gray-700 ${cursorClass} touch-none`}
       style={{
         ...style,
         touchAction: 'none',

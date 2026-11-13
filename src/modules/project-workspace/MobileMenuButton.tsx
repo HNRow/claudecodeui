@@ -11,9 +11,11 @@ export default function MobileMenuButton({ onMenuClick, compact = false }: Mobil
   const { t } = useTranslation();
   const { handleMobileMenuClick, handleMobileMenuTouchEnd } = useMobileMenuHandlers(onMenuClick);
 
+  // The mobile header's only navigation control: keep a 44 px tap target.
+  const touchTargetClasses = 'max-md:flex max-md:min-h-11 max-md:min-w-11 max-md:items-center max-md:justify-center';
   const buttonClasses = compact
-    ? 'p-1.5 text-muted-foreground hover:text-foreground rounded-lg hover:bg-accent/60 pwa-menu-button'
-    : 'p-1.5 text-muted-foreground hover:text-foreground rounded-lg hover:bg-accent/60 touch-manipulation active:scale-95 pwa-menu-button flex-shrink-0';
+    ? `p-1.5 text-muted-foreground hover:text-foreground rounded-lg hover:bg-accent/60 pwa-menu-button ${touchTargetClasses}`
+    : `p-1.5 text-muted-foreground hover:text-foreground rounded-lg hover:bg-accent/60 touch-manipulation active:scale-95 pwa-menu-button flex-shrink-0 ${touchTargetClasses}`;
 
   return (
     <button

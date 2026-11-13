@@ -61,7 +61,8 @@ export default function SidebarModeTabs({
         aria-label={tab.showLabel ? undefined : tab.label}
         title={tab.showLabel ? undefined : tab.label}
         className={cn(
-          'flex min-w-0 items-center justify-center gap-1.5 rounded-md px-2 py-1.5 text-xs font-normal transition-all',
+          // Touch layout keeps the 44 px tap target even though the strip stays compact.
+          'flex min-w-0 items-center justify-center gap-1.5 rounded-md px-2 py-1.5 text-xs font-normal transition-all max-md:min-h-11 max-md:min-w-11',
           tab.mode === 'archived' && 'px-2.5',
           canGrow && tab.showLabel && 'flex-1',
           isActive
@@ -100,7 +101,7 @@ export default function SidebarModeTabs({
       variant="ghost"
       size="sm"
       className="flex-none"
-      triggerClassName="h-auto rounded-md px-2 py-1.5 text-muted-foreground hover:bg-transparent hover:text-foreground [&_svg]:size-3.5"
+      triggerClassName="h-auto rounded-md px-2 py-1.5 text-muted-foreground hover:bg-transparent hover:text-foreground [&_svg]:size-3.5 max-md:min-h-11 max-md:min-w-11"
       items={hiddenTabs.map((tab) => ({
         key: tab.mode,
         label: tab.label,

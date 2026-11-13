@@ -181,7 +181,7 @@ function SidebarProjectItem({
               <div className="flex min-w-0 flex-1 items-center gap-3">
                 <button
                   className={cn(
-                    'w-8 h-8 rounded-lg flex items-center justify-center active:scale-90 transition-all duration-150 border',
+                    'w-8 h-8 rounded-lg flex items-center justify-center active:scale-90 transition-all duration-150 border max-md:h-11 max-md:w-11',
                     isStarred
                       ? 'bg-yellow-500/10 dark:bg-yellow-900/30 border-yellow-200 dark:border-yellow-800'
                       : 'bg-gray-500/10 dark:bg-gray-900/30 border-gray-200 dark:border-gray-800',

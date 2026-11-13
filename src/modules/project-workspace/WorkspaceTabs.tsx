@@ -123,7 +123,7 @@ export default function WorkspaceTabs({
                 isActive={isActive}
                 onClick={() => setActiveTab(tab.id)}
                 onKeyDown={handleTabKeyDown}
-                className="h-8 max-w-44 px-2.5 py-[5px]"
+                className="h-8 max-w-44 px-2.5 py-[5px] max-md:h-11"
               >
                 {tab.kind === 'builtin' ? (
                   <tab.icon className="h-3.5 w-3.5 shrink-0" strokeWidth={isActive ? 2.2 : 1.8} />
