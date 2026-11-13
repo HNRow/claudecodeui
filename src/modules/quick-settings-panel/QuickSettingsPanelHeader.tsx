@@ -33,7 +33,7 @@ export default function QuickSettingsPanelHeader({
             aria-pressed={isPinned}
             aria-label={pinLabel}
             title={pinLabel}
-            className={`rounded-md p-1.5 transition-colors hover:bg-accent ${isPinned ? 'text-foreground' : 'text-muted-foreground'}`}
+            className={`rounded-md p-1.5 transition-colors hover:bg-accent max-md:h-11 max-md:w-11 ${isPinned ? 'text-foreground' : 'text-muted-foreground'}`}
           >
             {isPinned ? <PinOff className="h-4 w-4" /> : <Pin className="h-4 w-4" />}
           </button>
@@ -45,7 +45,7 @@ export default function QuickSettingsPanelHeader({
             onClick={onClose}
             aria-label={t('quickSettings.close')}
             title={t('quickSettings.close')}
-            className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+            className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground max-md:h-11 max-md:w-11"
           >
             <X className="h-4 w-4" />
           </button>

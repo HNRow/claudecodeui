@@ -32,7 +32,7 @@ export function DarkModeToggle({
     <button
       onClick={handleToggle}
       className={cn(
-        'relative inline-flex h-7 w-12 flex-shrink-0 touch-manipulation cursor-pointer items-center rounded-full border-2 transition-colors duration-200',
+        'relative inline-flex h-7 w-12 flex-shrink-0 touch-manipulation cursor-pointer items-center rounded-full border-2 transition-colors duration-200 max-md:h-11',
         'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background',
         isEnabled ? 'border-primary bg-primary' : 'border-border bg-muted',
       )}
