@@ -82,7 +82,18 @@ export function useSidebarWidth(): {
     }
   }, []);
 
-  const resetWidth = useCallback(() => setWidth(SIDEBAR_WIDTH_DEFAULT), [setWidth]);
+  // Reset clears the stored preference instead of writing 288, so the viewport
+// default (288 on desktop, 240 on a folded-out phone) applies from now on.
+  const resetWidth = useCallback(() => {
+    try {
+      window.localStorage.removeItem(SIDEBAR_WIDTH_STORAGE_KEY);
+    } catch {
+      // Storage unavailable — the in-memory width still resets below.
+    }
+    setWidthState(
+      window.innerWidth < 1024 ? SIDEBAR_WIDTH_COMPACT_DEFAULT : SIDEBAR_WIDTH_DEFAULT,
+    );
+  }, []);
 
   return { width, setWidth, resetWidth };
 }
