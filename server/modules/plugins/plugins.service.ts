@@ -109,9 +109,22 @@ export function createPluginsService(dependencies: PluginDependencies) {
       if (!url || (!url.startsWith('https://') && !url.startsWith('git@'))) {
         throw new AppError('URL must start with https:// or git@', { code: 'INVALID_PLUGIN_URL', statusCode: 400 });
       }
-      const plugin = normalizePluginManifest(await dependencies.install(url));
-      await startServerIfAvailable(plugin);
-      return { success: true, plugin };
+      // Clone/manifest/npm failures are ordinary user-facing outcomes ("directory
+  // already exists", "no manifest.json"). Surface the message instead of the
+  // generic 500, which told the plugins page nothing.
+  let installed: unknown;
+  try {
+    installed = await dependencies.install(url);
+  } catch (error) {
+    throw new AppError(
+      error instanceof Error ? error.message : 'Plugin install failed',
+      { code: 'PLUGIN_INSTALL_FAILED', statusCode: 400 },
+    );
+  }
+
+  const plugin = normalizePluginManifest(installed);
+  await startServerIfAvailable(plugin);
+  return { success: true, plugin };
     },
     async update(pluginName: string) {
       validatePluginName(pluginName);
