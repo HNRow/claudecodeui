@@ -230,3 +230,16 @@ export const PROVIDER_PERMISSION_PREFERENCE_KEYS: Record<LLMProvider, UserPrefer
   opencode: 'opencodePermissions',
   kimi: 'kimiPermissions',
 };
+
+// ---------------------------
+
+//----------------- KEYBOARD ESCAPE LAYERS ------------
+
+/**
+ * Matches an open layer that dismisses itself on Escape: a menu, a modal
+ * dialog, or any overlay marked with `data-escape-layer`. Page-wide Escape
+ * handlers (closing the code editor, stopping a running chat turn) check for it
+ * with `document.querySelector` and step aside while one is open, so dismissing
+ * the layer is all that Escape does.
+ */
+export const ESCAPE_LAYER_SELECTOR = '[data-escape-layer], [aria-modal="true"], [role="menu"]';
